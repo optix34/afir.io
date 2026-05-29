@@ -3,193 +3,178 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M25 Monitor — документация расширения</title>
+    <title>M25 Monitor — документация расширения PILOT</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem;
             background: #f9fafb;
-            margin: 0;
-            padding: 40px 20px;
             color: #111827;
         }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 35px -12px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        .header {
-            background: #0f172a;
-            padding: 28px 36px;
-            color: white;
-        }
-        .header h1 {
-            margin: 0;
-            font-weight: 600;
-            font-size: 1.9rem;
-        }
-        .header p {
-            margin: 8px 0 0;
-            opacity: 0.8;
-        }
-        .content {
-            padding: 36px;
-        }
-        h2 {
-            font-size: 1.5rem;
-            margin-top: 1.8rem;
-            margin-bottom: 0.8rem;
+        h1, h2, h3 {
             color: #0f172a;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 6px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 0.3rem;
         }
-        h3 {
-            font-size: 1.2rem;
-            margin: 1.2rem 0 0.5rem;
-            color: #1e293b;
-        }
-        p, li {
-            line-height: 1.6;
-            color: #334155;
-        }
-        code {
-            background: #f1f5f9;
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-family: 'SF Mono', Monaco, monospace;
-            font-size: 0.85em;
-        }
-        pre {
+        h1 { border-bottom-width: 2px; border-bottom-color: #2563eb; }
+        code, pre {
             background: #1e293b;
             color: #e2e8f0;
-            padding: 16px;
-            border-radius: 12px;
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.375rem;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            padding: 1rem;
             overflow-x: auto;
-            margin: 1rem 0;
+            background: #0f172a;
+            border-radius: 0.5rem;
         }
         .note {
-            background: #eff6ff;
+            background: #eef2ff;
             border-left: 4px solid #3b82f6;
-            padding: 12px 20px;
-            border-radius: 12px;
-            margin: 20px 0;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0.5rem;
         }
         .warning {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 12px 20px;
-            border-radius: 12px;
-            margin: 20px 0;
+            background: #fffbeb;
+            border-left: 4px solid #eab308;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0.5rem;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 20px 0;
+            margin: 1rem 0;
         }
         th, td {
-            border: 1px solid #e2e8f0;
-            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            padding: 0.5rem;
             text-align: left;
+            background: white;
         }
         th {
-            background: #f8fafc;
-            font-weight: 600;
-        }
-        .footer {
-            background: #f8fafc;
-            padding: 16px 36px;
-            border-top: 1px solid #e2e8f0;
-            font-size: 0.8rem;
-            color: #64748b;
+            background: #f1f5f9;
         }
     </style>
 </head>
 <body>
-<div class="container">
-    <div class="header">
-        <h1>M25 Monitor Extension</h1>
-        <p>Документация для администраторов и пользователей PILOT</p>
-    </div>
-    <div class="content">
-        <h2>Обзор</h2>
-        <p>
-            Расширение <strong>M25 Monitor</strong> добавляет в PILOT GPS левую вкладку «M25 Monitor».
-            Вкладка отображает иерархическое дерево всех транспортных средств, у которых в поле <code>equipment</code>
-            встречается подстрока <code>M25</code> (регистр не важен). При выборе объекта справа загружается внешняя
-            страница мониторинга <code>https://mega-info.su/dealer2/</code>.
-        </p>
+    <h1>📡 M25 Monitor — PILOT Extension</h1>
+    <p>Расширение для системы мониторинга транспорта <strong>PILOT GPS</strong> (Pilot.Online / PILOT).</p>
+    <p>Основная задача: отображать в левой навигации только те транспортные средства, которые оснащены трекерами модели <strong>M25</strong>, и при выборе объекта загружать внешнюю панель <code>https://mega-info.su/dealer2/</code> с информацией по выбранному автомобилю.</p>
 
-        <h2>Установка</h2>
-        <h3>1. Размещение файлов</h3>
-        <p>Скопируйте следующую структуру файлов на ваш статический хостинг:</p>
-        <pre>
+    <div class="note">
+        ✅ <strong>Соответствие AI_SPECS.md</strong><br>
+        Расширение разработано в точности по контракту PILOT Extensions: не является SPA, не загружает Ext JS повторно, не содержит скриптов в doc/index.html, использует глобальный <code>skeleton</code> и прокси <code>/store/...</code>.
+    </div>
+
+    <h2>📦 Состав расширения</h2>
+    <pre>
 m25_monitor/
-├── index.html
-├── Module.js
+├── index.html               # корневой файл для статического хостинга (пустой/перенаправление)
+├── Module.js                # точка входа, класс Store.m25_monitor.Module
 ├── doc/
-│   └── index.html   (этот файл)
-└── style.css        (опционально)</pre>
-        <p>Убедитесь, что <code>Module.js</code> доступен по URL вида <code>https://ваш-хост/m25_monitor/Module.js</code>.</p>
+│   └── index.html           # эта документация
+└── view/
+    ├── Navigation.js        # левая панель (дерево с фильтрацией M25)
+    └── MainPanel.js         # правая панель (iframe + тулбар)
+    </pre>
 
-        <h3>2. Регистрация в PILOT</h3>
-        <p>
-            Войдите в административную панель PILOT → раздел «Расширения» (Extensions). Добавьте новое расширение:
-        </p>
-        <ul>
-            <li><strong>Имя расширения (slug):</strong> <code>m25_monitor</code> (только латиница, нижнее подчёркивание)</li>
-            <li><strong>Базовый URL:</strong> <code>https://ваш-хост/m25_monitor/</code> (обязательно с завершающим слэшем)</li>
-        </ul>
-        <p>После сохранения PILOT будет автоматически проксировать <code>/store/m25_monitor/... → ваш-хост/...</code>.</p>
+    <h2>⚙️ Как это работает</h2>
+    <ol>
+        <li><strong>Инициализация</strong> – после загрузки PILOT вызывает <code>initModule()</code> класса <code>Store.m25_monitor.Module</code>.</li>
+        <li><strong>Создание интерфейса</strong> – создаётся вкладка <code>Pilot.utils.LeftBarPanel</code> с деревом из <code>Navigation.js</code> и правая панель <code>MainPanel.js</code>, они связываются через <code>navTab.map_frame = mainPanel</code>.</li>
+        <li><strong>Загрузка данных</strong> – <code>Navigation.js</code> запрашивает <code>/ax/tree.php?vehs=1&state=1</code>.</li>
+        <li><strong>Фильтрация</strong> – рекурсивно обходит дерево, ищет узлы с типом «транспорт» (veh или vehid) и проверяет наличие подстроки <code>m25</code> в поле оборудования. Пробует следующие имена полей: <code>equipment</code>, <code>model</code>, <code>device</code>, <code>hardware</code>, <code>devicetype</code>, <code>tracker</code>. Если ни одно не найдено – ищет в любом строковом поле, содержащем «equip» или «device».</li>
+        <li><strong>Отображение дерева</strong> – в левой панели показываются только папки, содержащие M25-объекты, и сами объекты. Для каждого объекта отображаются: название, IMEI, модель оборудования.</li>
+        <li><strong>Выбор объекта</strong> – при клике на транспорт в правой панели загружается <code>https://mega-info.su/dealer2/?vehicle_id=XXX</code> (или просто базовый URL, если ID не задан).</li>
+        <li><strong>Правая панель</strong> – содержит iframe с внешней страницей и тулбар: кнопки «Обновить», «Открыть в новом окне», строка с названием выбранного объекта.</li>
+    </ol>
 
-        <h2>Использование</h2>
-        <ul>
-            <li>Перейдите в раздел <strong>M25 Monitor</strong> в левом меню навигации.</li>
-            <li>Разверните группы, чтобы увидеть объекты с оборудованием M25.</li>
-            <li>Кликните на любой объект — справа откроется iframe с внешней страницей.</li>
-            <li>Если страница не отображается (блокировка X-Frame-Options), нажмите кнопку «Открыть в новом окне» в правой панели.</li>
-        </ul>
+    <h2>🔧 Установка и регистрация</h2>
+    <h3>Требования к хостингу</h3>
+    <ul>
+        <li>Любой статический хостинг (Cloudflare Pages, GitHub Pages, VPS с Nginx).</li>
+        <li>Файлы должны быть доступны по публичному URL.</li>
+        <li>Корневая папка должна содержать <code>Module.js</code> и <code>doc/index.html</code>, а также подпапку <code>view/</code> с файлами <code>Navigation.js</code> и <code>MainPanel.js</code>.</li>
+        <li>Для Cloudflare Pages <strong>обязателен</strong> файл <code>index.html</code> в корне (может быть пустым или копией <code>doc/index.html</code>).</li>
+    </ul>
 
-        <h2>Структура данных из PILOT</h2>
-        <p>
-            Расширение использует эндпоинт <code>/ax/tree.php?vehs=1&state=1</code>, который возвращает иерархический JSON.
-            Пример узла транспортного средства:
-        </p>
-        <pre>{
-  "id": "veh_123",
-  "text": "Грузовик 45",
-  "type": "veh",
-  "vehid": 12345,
-  "imei": "865234012345678",
-  "equipment": "M25-GLONASS",
-  ...
-}</pre>
-        <p>Фильтрация ищет <code>equipment.indexOf('M25') !== -1</code> (без учёта регистра).</p>
+    <h3>Пошаговая регистрация в PILOT</h3>
+    <ol>
+        <li>Загрузите все файлы расширения на ваш хостинг (например, Cloudflare Pages).</li>
+        <li>Проверьте, что URL <code>https://ваш-хост/Module.js</code> открывается и показывает JavaScript-код.</li>
+        <li>Войдите в PILOT как администратор.</li>
+        <li>Перейдите в <strong>Администрирование → Приложения → Список расширений</strong> (или просто «Приложения»).</li>
+        <li>Нажмите <strong>«Добавить»</strong>.</li>
+        <li>Заполните поля:
+            <ul>
+                <li><strong>Название (slug):</strong> <code>m25_monitor</code> (только латиница, строчные буквы, подчёркивание). Не используйте дефисы.</li>
+                <li><strong>URL:</strong> <code>https://ваш-хост/</code> (обязательно с завершающим слешем).</li>
+            </ul>
+        </li>
+        <li>Сохраните расширение и включите его для нужного пользователя или для всех.</li>
+        <li>Полностью перезагрузите PILOT (Ctrl+F5, чтобы обновить Ext JS приложение).</li>
+        <li>В верхней панели или в левом меню (зависит от версии) должна появиться иконка <strong>M25 Monitor</strong>.</li>
+    </ol>
 
-        <h2>Настройка API ключей (не требуется)</h2>
-        <p>Данное расширение не использует внешние API, кроме встроенной страницы <code>mega-info.su</code>. Для корректной работы iframe достаточно сетевого доступа к этому домену.</p>
-
-        <h2>Устранение неполадок</h2>
-        <div class="note">
-            <strong>✓ Дерево пустое</strong> — проверьте, есть ли в системе объекты с equipment, содержащим «M25». Если нет — ни один объект не отобразится.
-        </div>
-        <div class="note">
-            <strong>✓ Ошибка загрузки дерева</strong> — откройте консоль разработчика (F12) и посмотрите ответ от <code>/ax/tree.php</code>. Убедитесь, что вы авторизованы в PILOT.
-        </div>
-        <div class="warning">
-            <strong>⚠️ Страница не загружается в iframe</strong> — сайт <code>mega-info.su</code> может запрещать встраивание. Расширение покажет сообщение и предложит альтернативу. Это нормально.
-        </div>
-
-        <h2>Версия и совместимость</h2>
-        <p>Расширение протестировано с PILOT версии 7.7+ (Ext JS 7.7). Требуется наличие глобальных объектов <code>window.skeleton</code>, <code>skeleton.navigation</code>, <code>skeleton.mapframe</code>.</p>
-
-        <h2>Лицензия</h2>
-        <p>Распространяется на условиях Apache License 2.0. Исходный код примера базируется на шаблонах из <a href="https://github.com/pilot-telematics/pilot_extensions" target="_blank">pilot_extensions</a>.</p>
+    <div class="warning">
+        ⚠️ <strong>Важное замечание про iframe</strong><br>
+        Внешний сайт <code>https://mega-info.su/dealer2/</code> может запрещать встраивание через заголовок <code>X-Frame-Options</code> или CSP. Если в консоли браузера появится ошибка <code>Refused to display in a frame</code>, используйте кнопку «Открыть в новом окне» на тулбаре правой панели – она будет работать всегда.
     </div>
-    <div class="footer">
-        M25 Monitor Extension — PILOT GPS &copy; 2025
-    </div>
-</div>
+
+    <h2>🩺 Диагностика (если объекты не отображаются)</h2>
+    <h3>1. Проверьте консоль браузера (F12)</h3>
+    <p>При успешной загрузке вы должны увидеть:</p>
+    <pre>
+[M25] Extension initialized successfully
+[M25] Raw tree data sample: { ... }
+[M25] Filtered vehicles count: X
+    </pre>
+    <p>Если сообщений нет – расширение не зарегистрировано или <code>Module.js</code> не загрузился.</p>
+
+    <h3>2. Проверьте фильтрацию</h3>
+    <ul>
+        <li>Откройте вкладку Network, найдите запрос к <code>/ax/tree.php?vehs=1&state=1</code>. Посмотрите ответ (Preview).</li>
+        <li>Найдите первый объект-транспорт и проверьте, в каком поле хранится модель трекера (например, <code>equipment</code>, <code>model</code>, <code>device</code>).</li>
+        <li>Если поле называется иначе, отредактируйте массив <code>candidates</code> в методе <code>extractEquipment</code> файла <code>view/Navigation.js</code>.</li>
+        <li>Если поле содержит не «M25», а, скажем, «M25L» или «M25 PRO», фильтр сработает, т.к. используется <code>indexOf('m25')</code> – он найдёт подстроку.</li>
+    </ul>
+
+    <h3>3. Проверьте связь map_frame</h3>
+    <p>В консоли выполните:</p>
+    <pre>var nav = skeleton.navigation.items.findBy(c => c.title === 'M25 Monitor'); console.log(nav.map_frame);</pre>
+    <p>Должна отобразиться правая панель (<code>Store.m25_monitor.view.MainPanel</code>). Если <code>undefined</code> – проблема в модуле.</p>
+
+    <h3>4. Распространённые ошибки и решения</h3>
+    <table>
+        <thead>
+            <tr><th>Симптом</th><th>Возможная причина</th><th>Решение</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Вкладка M25 Monitor не появляется</td><td>Неправильный slug расширения (дефисы) или базовый URL без слеша</td><td>Удалить расширение, пересоздать с именем <code>m25_monitor</code> и URL с завершающим слешем.</td></tr>
+            <tr><td>Дерево пустое, Filtered vehicles count = 0</td><td>Поле оборудования не распознано или трекеры M25 отсутствуют</td><td>См. пункт 2 выше – скорректировать candidates в Navigation.js.</td></tr>
+            <tr><td>Ошибка <code>Ext.create('Store.m25_monitor.view.Navigation')</code> not defined</td><td>Файл <code>view/Navigation.js</code> не загрузился</td><td>Проверить, что файл доступен по <code>https://ваш-хост/view/Navigation.js</code>. Возможно, нужно настроить MIME-типы на сервере.</td></tr>
+            <tr><td>iframe показывает "about:blank" после клика</td><td>Нет метода <code>setMainPanel</code> или <code>navTab.map_frame</code> не задан</td><td>Проверить консоль на ошибки, убедиться, что используется исправленная версия <code>Module.js</code>.</td></tr>
+            <tr><td>Консольная ошибка <code>l is not defined</code></td><td>Функция локализации PILOT недоступна в момент инициализации</td><td>Обернуть вызов <code>l(...)</code> в проверку <code>typeof l === 'function' ? l('text') : 'text'</code> (в исправленных версиях это уже учтено).</td></tr>
+        </tbody>
+    </table>
+
+    <h2>🔄 Обслуживание и обновления</h2>
+    <p>Расширение полностью автономно. Для обновления достаточно заменить файлы на хостинге и очистить кэш браузера (Ctrl+F5). PILOT автоматически подхватит новую версию, так как <code>Module.js</code> загружается при каждой перезагрузке интерфейса.</p>
+    <p>Изменения вступают в силу после полной перезагрузки страницы PILOT.</p>
+
+    <h2>📜 Лицензия и авторство</h2>
+    <p>Расширение распространяется свободно, соответствует требованиям <a href="https://github.com/optix34/afir.io/blob/main/AI_SPECS.md" target="_blank">AI_SPECS.md</a> и основано на коде из репозитория <code>afir.io</code>.</p>
+    <p>Если у вас остались вопросы, обратитесь к техническому специалисту или на форум PILOT Extensions.</p>
+
+    <hr>
+    <p style="text-align:center; font-size:0.8rem;">© 2026 – M25 Monitor Extension, версия 1.0. Совместимо с PILOT GPS (любая версия с поддержкой Extensions).</p>
 </body>
 </html>
