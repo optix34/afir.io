@@ -1,7 +1,9 @@
 /**
  * M25 Monitor - PILOT Extension
- * Колонки: Объект, vehid (системный), ID устройства (пользовательский), Тип устройства (выбор из списка).
- * Все редактируемые поля сохраняются в localStorage.
+ * Отображает все устройства клиента.
+ * ID устройства = vehid (Agent ID) – только для чтения.
+ * Тип устройства автоматически определяется из полей model/equipment API,
+ * но может быть изменён пользователем (сохраняется в localStorage).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
@@ -20,10 +22,9 @@ Ext.define('Store.m25_monitor.Module', {
             return;
         }
 
-        // Загружаем сохранённые данные
-        me.loadCustomData();
+        // Загружаем сохранённые типы (по vehid)
+        me.loadSavedTypes();
 
-        // Левая панель с тулбаром и деревом
         var navPanel = Ext.create('Ext.panel.Panel', {
             layout: 'border',
             border: false,
@@ -33,20 +34,20 @@ Ext.define('Store.m25_monitor.Module', {
                     xtype: 'toolbar',
                     items: [
                         {
-                            text: 'Сохранить изменения',
+                            text: 'Сохранить типы',
                             iconCls: 'fa fa-save',
-                            handler: me.saveAllToLocal,
+                            handler: me.saveTypesToLocal,
                             scope: me
                         },
                         {
-                            text: 'Сбросить все данные',
+                            text: 'Сбросить все типы',
                             iconCls: 'fa fa-undo',
-                            handler: me.resetAllData,
+                            handler: me.resetAllTypes,
                             scope: me
                         },
                         '->',
                         {
-                            text: 'Обновить список из PILOT',
+                            text: 'Обновить список',
                             iconCls: 'fa fa-refresh',
                             handler: me.refreshTree,
                             scope: me
@@ -80,35 +81,31 @@ Ext.define('Store.m25_monitor.Module', {
         me.mainPanel = mainPanel;
     },
 
-    // Загрузка пользовательских данных (customId, deviceType) из localStorage
-    loadCustomData: function() {
-        var stored = localStorage.getItem('m25_monitor_custom_data');
+    loadSavedTypes: function() {
+        var stored = localStorage.getItem('m25_monitor_device_types');
         if (stored) {
-            this.customData = Ext.decode(stored);
+            this.deviceTypes = Ext.decode(stored);
         } else {
-            this.customData = {};
+            this.deviceTypes = {};
         }
     },
 
-    // Сохранение всех данных в localStorage
-    saveAllToLocal: function() {
-        localStorage.setItem('m25_monitor_custom_data', Ext.encode(this.customData));
-        Ext.Msg.alert('Сохранено', 'Данные сохранены в браузере');
+    saveTypesToLocal: function() {
+        localStorage.setItem('m25_monitor_device_types', Ext.encode(this.deviceTypes));
+        Ext.Msg.alert('Сохранено', 'Типы устройств сохранены');
     },
 
-    // Сброс всех пользовательских данных
-    resetAllData: function() {
+    resetAllTypes: function() {
         var me = this;
-        Ext.Msg.confirm('Сброс', 'Удалить все сохранённые ID и типы устройств?', function(btn) {
+        Ext.Msg.confirm('Сброс', 'Сбросить все типы устройств к значениям из API?', function(btn) {
             if (btn === 'yes') {
-                me.customData = {};
-                me.saveAllToLocal();
+                me.deviceTypes = {};
+                me.saveTypesToLocal();
                 me.refreshTree();
             }
         });
     },
 
-    // Обновить дерево (перезагрузить из API, сохранив пользовательские данные)
     refreshTree: function() {
         var me = this;
         if (me.treePanel && me.treePanel.getStore()) {
@@ -128,57 +125,31 @@ Ext.define('Store.m25_monitor.Module', {
             sorters: [{ property: 'text', direction: 'ASC' }]
         });
 
-        // Настройка редактирования ячеек
+        // Редактирование ячеек только для колонки "Тип устройства"
         var cellEditing = Ext.create('Ext.grid.plugin.CellEditing', {
             clicksToEdit: 2,
             listeners: {
                 beforeedit: function(editor, context) {
-                    // Запрещаем редактирование колонки vehid (она только для чтения)
-                    if (context.column.dataIndex === 'vehid') {
-                        return false;
-                    }
-                    return true;
+                    // Разрешаем редактировать только колонку deviceType
+                    return context.column.dataIndex === 'deviceType';
                 },
                 edit: function(editor, context) {
                     var record = context.record;
-                    var field = context.field;
                     var newValue = context.value;
                     var vehid = record.get('vehid');
                     if (!vehid) return;
 
-                    // Инициализируем объект для этого vehid, если его нет
-                    if (!me.customData[vehid]) {
-                        me.customData[vehid] = {};
+                    if (newValue) {
+                        me.deviceTypes[vehid] = newValue;
+                    } else {
+                        delete me.deviceTypes[vehid];
                     }
-
-                    if (field === 'customId') {
-                        me.customData[vehid].customId = newValue;
-                        record.set('customId', newValue);
-                    } else if (field === 'deviceType') {
-                        me.customData[vehid].deviceType = newValue;
-                        record.set('deviceType', newValue);
-                    }
-
-                    // Автосохранение после каждого изменения
-                    me.saveAllToLocal();
+                    // Обновляем запись, чтобы отобразить новое значение
+                    record.set('deviceType', newValue);
+                    me.saveTypesToLocal();
                 }
             }
         });
-
-        // Колонка "ID устройства" (пользовательский) – редактируемый текст
-        var customIdColumn = {
-            text: 'ID устройства',
-            dataIndex: 'customId',
-            flex: 1.5,
-            sortable: true,
-            editor: {
-                xtype: 'textfield',
-                allowBlank: true
-            },
-            renderer: function(value) {
-                return value ? Ext.String.htmlEncode(value) : '—';
-            }
-        };
 
         // Колонка "Тип устройства" – выпадающий список
         var typeColumn = {
@@ -207,8 +178,7 @@ Ext.define('Store.m25_monitor.Module', {
             plugins: [cellEditing],
             columns: [
                 { xtype: 'treecolumn', text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
-                { text: 'vehid (системный)', dataIndex: 'vehid', flex: 1, sortable: true },
-                customIdColumn,
+                { text: 'ID устройства (Agent ID)', dataIndex: 'vehid', flex: 1, sortable: true },
                 typeColumn
             ],
             listeners: {
@@ -226,7 +196,6 @@ Ext.define('Store.m25_monitor.Module', {
         return treePanel;
     },
 
-    // Загрузка всех устройств из API
     loadAllVehicles: function(store, treePanel) {
         var me = this;
         console.log('M25 Monitor: загрузка устройств из PILOT');
@@ -238,9 +207,7 @@ Ext.define('Store.m25_monitor.Module', {
                 try {
                     var resp = Ext.decode(response.responseText);
                     var vehicles = resp.objects || resp.data || resp;
-                    if (!Ext.isArray(vehicles)) {
-                        vehicles = [];
-                    }
+                    if (!Ext.isArray(vehicles)) vehicles = [];
 
                     var nodes = [];
                     Ext.Array.each(vehicles, function(veh) {
@@ -269,26 +236,36 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    // Нормализация узла с учётом сохранённых данных
+    // Нормализация узла: ID устройства = vehid, тип – из сохранённого или из API
     normalizeVehicleNode: function(vehicle) {
         var vehid = vehicle.vehid || vehicle.id;
-        var saved = this.customData[vehid] || {};
-        // Определяем тип из API, только если он входит в список опций и нет сохранённого
-        var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
-        var deviceType = saved.deviceType;
-        if (!deviceType && this.deviceTypeOptions.indexOf(apiType) !== -1) {
-            deviceType = apiType;
+        var savedType = this.deviceTypes[vehid];
+        if (savedType !== undefined) {
+            // Используем сохранённый тип
+            return {
+                id: 'veh_' + vehid,
+                text: vehicle.text || vehicle.name || 'Без имени',
+                vehid: vehid,
+                deviceType: savedType,
+                type: 'veh',
+                leaf: true,
+                iconCls: 'fa fa-car'
+            };
+        } else {
+            // Автоматическое определение типа из полей API
+            var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
+            // Если API тип входит в список опций, используем его, иначе пусто
+            var displayType = (this.deviceTypeOptions.indexOf(apiType) !== -1) ? apiType : '';
+            return {
+                id: 'veh_' + vehid,
+                text: vehicle.text || vehicle.name || 'Без имени',
+                vehid: vehid,
+                deviceType: displayType,
+                type: 'veh',
+                leaf: true,
+                iconCls: 'fa fa-car'
+            };
         }
-        return {
-            id: 'veh_' + vehid,
-            text: vehicle.text || vehicle.name || 'Без имени',
-            vehid: vehid,
-            customId: saved.customId || '',
-            deviceType: deviceType || '',
-            type: 'veh',
-            leaf: true,
-            iconCls: 'fa fa-car'
-        };
     },
 
     createMainPanel: function() {
