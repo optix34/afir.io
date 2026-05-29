@@ -87,9 +87,6 @@ Ext.define('Store.m25_monitor.Module', {
         return treePanel;
     },
 
-    /**
-     * Загружает /ax/current_data.php и извлекает массив объектов из поля objects
-     */
     loadM25Data: function(store, treePanel) {
         var me = this;
         console.log('M25 Monitor: loading data from /ax/current_data.php');
@@ -102,7 +99,6 @@ Ext.define('Store.m25_monitor.Module', {
                     var resp = Ext.decode(response.responseText);
                     console.log('M25 Monitor: raw response', resp);
 
-                    // Ключевое исправление: данные лежат в resp.objects
                     var vehiclesArray = resp.objects;
                     if (!Ext.isArray(vehiclesArray)) {
                         console.error('M25 Monitor: objects field is not an array', vehiclesArray);
@@ -138,15 +134,15 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    /**
-     * Фильтрует массив ТС, оставляя только те, у которых оборудование содержит "m25"
-     */
     filterM25Vehicles: function(vehicles) {
         var me = this;
         var result = [];
         Ext.Array.each(vehicles, function(vehicle) {
-            // Пытаемся найти поле с оборудованием (equipment, hardware, model)
+            // Безопасное получение строки оборудования
             var equipment = vehicle.equipment || vehicle.hardware || vehicle.model || '';
+            if (typeof equipment !== 'string') {
+                equipment = String(equipment);
+            }
             if (equipment.toLowerCase().indexOf('m25') !== -1) {
                 result.push(me.normalizeVehicleNode(vehicle));
             }
@@ -154,16 +150,17 @@ Ext.define('Store.m25_monitor.Module', {
         return result;
     },
 
-    /**
-     * Приводит объект ТС к формату узла дерева
-     */
     normalizeVehicleNode: function(vehicle) {
+        var equipment = vehicle.equipment || '';
+        if (typeof equipment !== 'string') {
+            equipment = String(equipment);
+        }
         return {
             id: 'veh_' + (vehicle.vehid || vehicle.id),
             text: vehicle.text || vehicle.name || 'Без имени',
             vehid: vehicle.vehid || vehicle.id,
             imei: vehicle.imei || '',
-            equipment: vehicle.equipment || '',
+            equipment: equipment,
             type: 'veh',
             leaf: true,
             iconCls: 'fa fa-car'
