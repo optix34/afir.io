@@ -1,12 +1,15 @@
 /**
  * M25 Monitor - PILOT Extension
- * Отображает все устройства клиента с возможностью редактирования типа оборудования.
- * Типы сохраняются в localStorage.
+ * Отображает все устройства клиента с колонками: Объект, ID устройства (vehid), Тип устройства (выпадающий список).
+ * Тип устройства сохраняется в localStorage.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
+
+    // Предопределённые типы устройств
+    deviceTypeOptions: ['M25', 'M30', 'M40', 'Другое'],
 
     initModule: function() {
         var me = this;
@@ -17,10 +20,8 @@ Ext.define('Store.m25_monitor.Module', {
             return;
         }
 
-        // Хранилище для типов оборудования
         me.loadDeviceTypes();
 
-        // Левая панель с тулбаром и деревом
         var navPanel = Ext.create('Ext.panel.Panel', {
             layout: 'border',
             border: false,
@@ -77,7 +78,6 @@ Ext.define('Store.m25_monitor.Module', {
         me.mainPanel = mainPanel;
     },
 
-    // Загрузка сохранённых типов из localStorage
     loadDeviceTypes: function() {
         var stored = localStorage.getItem('m25_monitor_device_types');
         if (stored) {
@@ -87,13 +87,11 @@ Ext.define('Store.m25_monitor.Module', {
         }
     },
 
-    // Сохранение типов в localStorage (вызывается вручную или автоматически)
     saveDeviceTypesToLocal: function() {
         localStorage.setItem('m25_monitor_device_types', Ext.encode(this.deviceTypes));
-        Ext.Msg.alert('Сохранено', 'Типы оборудования сохранены в браузере');
+        Ext.Msg.alert('Сохранено', 'Типы устройств сохранены');
     },
 
-    // Сброс всех типов
     resetAllTypes: function() {
         var me = this;
         Ext.Msg.confirm('Сброс', 'Удалить все сохранённые типы?', function(btn) {
@@ -105,7 +103,6 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    // Обновить дерево
     refreshTree: function() {
         var me = this;
         if (me.treePanel && me.treePanel.getStore()) {
@@ -125,48 +122,61 @@ Ext.define('Store.m25_monitor.Module', {
             sorters: [{ property: 'text', direction: 'ASC' }]
         });
 
+        // Колонка "Тип устройства" с выпадающим списком
+        var typeColumn = Ext.create('Ext.grid.column.Column', {
+            text: 'Тип устройства',
+            dataIndex: 'deviceType',
+            flex: 1.5,
+            sortable: true,
+            renderer: function(value, meta, record) {
+                // Показываем текущее значение, но редактирование будет через editor
+                return value || '—';
+            },
+            editor: {
+                xtype: 'combobox',
+                store: me.deviceTypeOptions,
+                queryMode: 'local',
+                editable: true,   // можно ввести своё значение
+                forceSelection: false,
+                triggerAction: 'all',
+                valueField: 'value',
+                displayField: 'value',
+                listeners: {
+                    change: function(field, newValue) {
+                        // Сохраняем при изменении
+                        var vehid = record.get('vehid');
+                        if (newValue) {
+                            me.deviceTypes[vehid] = newValue;
+                        } else {
+                            delete me.deviceTypes[vehid];
+                        }
+                        me.saveDeviceTypesToLocal();
+                        me.refreshTree(); // обновляем для отображения нового значения
+                    }
+                }
+            }
+        });
+
         var treePanel = Ext.create('Ext.tree.Panel', {
             store: store,
             rootVisible: true,
             useArrows: true,
+            selType: 'cellmodel',
+            plugins: [
+                Ext.create('Ext.grid.plugin.CellEditing', {
+                    clicksToEdit: 2
+                })
+            ],
             columns: [
                 { xtype: 'treecolumn', text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
-                { text: 'IMEI', dataIndex: 'imei', flex: 1, sortable: true, renderer: function(v) { return v || '—'; } },
-                { text: 'Agent ID (vehid)', dataIndex: 'vehid', flex: 1, sortable: true },
-                {
-                    text: 'Тип оборудования',
-                    dataIndex: 'deviceType',
-                    flex: 1.5,
-                    sortable: true,
-                    renderer: function(value, meta, record) {
-                        // Делаем ячейку редактируемой по двойному клику
-                        var vehid = record.get('vehid');
-                        var val = value || 'не указан';
-                        return '<span class="editable-type" data-vehid="' + vehid + '" style="cursor:pointer; color:#2563eb;">' + Ext.String.htmlEncode(val) + ' ✎</span>';
-                    }
-                }
+                { text: 'ID устройства (vehid)', dataIndex: 'vehid', flex: 1, sortable: true },
+                typeColumn
             ],
             listeners: {
                 selectionchange: function(sm, selected) {
                     if (selected && selected.length && selected[0].get('type') === 'veh') {
                         me.onVehicleSelected(selected[0]);
                     }
-                },
-                itemdblclick: function(view, record) {
-                    if (record.get('type') === 'veh') {
-                        me.editDeviceType(record);
-                    }
-                },
-                // Обработка клика по редактируемому полю (делегирование)
-                render: function() {
-                    treePanel.getEl().on('click', function(e) {
-                        var target = e.getTarget('.editable-type');
-                        if (target) {
-                            var vehid = target.getAttribute('data-vehid');
-                            var record = store.getNodeById('veh_' + vehid);
-                            if (record) me.editDeviceType(record);
-                        }
-                    });
                 },
                 scope: me
             }
@@ -177,7 +187,6 @@ Ext.define('Store.m25_monitor.Module', {
         return treePanel;
     },
 
-    // Загрузка всех устройств из API
     loadAllVehicles: function(store, treePanel) {
         var me = this;
         console.log('M25 Monitor: загрузка всех устройств');
@@ -220,45 +229,25 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    // Нормализация узла с учётом сохранённого типа
     normalizeVehicleNode: function(vehicle) {
         var vehid = vehicle.vehid || vehicle.id;
-        // Пытаемся определить тип из API (если есть)
+        // Попытка определить тип из API (если он совпадает с одним из предопределённых)
         var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
-        // Если тип сохранён в localStorage, используем его; иначе берем из API
         var savedType = this.deviceTypes[vehid];
-        var displayType = savedType || apiType || '';
+        // Если сохранённого нет, но apiType входит в список опций – используем его
+        var displayType = savedType;
+        if (!displayType && this.deviceTypeOptions.indexOf(apiType) !== -1) {
+            displayType = apiType;
+        }
         return {
             id: 'veh_' + vehid,
             text: vehicle.text || vehicle.name || 'Без имени',
             vehid: vehid,
-            imei: vehicle.imei || '',
-            deviceType: displayType,
-            rawApiType: apiType, // сохраняем оригинал для сброса
+            deviceType: displayType || '',
             type: 'veh',
             leaf: true,
             iconCls: 'fa fa-car'
         };
-    },
-
-    // Редактирование типа оборудования
-    editDeviceType: function(record) {
-        var me = this;
-        var vehid = record.get('vehid');
-        var currentType = record.get('deviceType') || '';
-        Ext.Msg.prompt('Редактировать тип оборудования', 'Введите тип для устройства "' + record.get('text') + '" (например, M25):', function(btn, text) {
-            if (btn === 'ok' && text !== null) {
-                var newType = text.trim();
-                if (newType === '') {
-                    // Если пусто, удаляем сохранённый тип и используем API
-                    delete me.deviceTypes[vehid];
-                } else {
-                    me.deviceTypes[vehid] = newType;
-                }
-                me.saveDeviceTypesToLocal(); // автосохранение
-                me.refreshTree(); // перезагружаем дерево
-            }
-        }, this, false, currentType);
     },
 
     createMainPanel: function() {
