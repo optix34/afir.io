@@ -1,15 +1,12 @@
 /**
  * M25 Monitor - PILOT Extension
- * Ручное управление списком M25 устройств.
- * Сохраняет список vehid в localStorage.
+ * Отображает все устройства клиента с возможностью редактирования типа оборудования.
+ * Типы сохраняются в localStorage.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
-
-    // === ЗДЕСЬ ЗАДАЙТЕ ИЗВЕСТНЫЕ M25 УСТРОЙСТВА (vehid) ===
-    defaultList: [79707],  // добавьте другие vehid через запятую, например [79707, 12345, 67890]
 
     initModule: function() {
         var me = this;
@@ -20,10 +17,10 @@ Ext.define('Store.m25_monitor.Module', {
             return;
         }
 
-        // Инициализируем список (загружаем из localStorage или используем defaultList)
-        me.loadM25List();
+        // Хранилище для типов оборудования
+        me.loadDeviceTypes();
 
-        // Левая панель с кнопками и деревом
+        // Левая панель с тулбаром и деревом
         var navPanel = Ext.create('Ext.panel.Panel', {
             layout: 'border',
             border: false,
@@ -33,15 +30,15 @@ Ext.define('Store.m25_monitor.Module', {
                     xtype: 'toolbar',
                     items: [
                         {
-                            text: 'Добавить M25',
-                            iconCls: 'fa fa-plus',
-                            handler: me.promptAddVehicle,
+                            text: 'Сохранить типы',
+                            iconCls: 'fa fa-save',
+                            handler: me.saveDeviceTypesToLocal,
                             scope: me
                         },
                         {
-                            text: 'Удалить',
-                            iconCls: 'fa fa-trash',
-                            handler: me.promptRemoveVehicle,
+                            text: 'Сбросить все типы',
+                            iconCls: 'fa fa-undo',
+                            handler: me.resetAllTypes,
                             scope: me
                         },
                         '->',
@@ -63,7 +60,7 @@ Ext.define('Store.m25_monitor.Module', {
         });
 
         var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
-            title: 'M25 Monitor',
+            title: 'Устройства клиента',
             iconCls: 'fa fa-microchip',
             iconAlign: 'top',
             minimized: true,
@@ -78,100 +75,41 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.mapframe.add(mainPanel);
 
         me.mainPanel = mainPanel;
-        me.navTab = navTab;
     },
 
-    loadM25List: function() {
-        var stored = localStorage.getItem('m25_monitor_list');
+    // Загрузка сохранённых типов из localStorage
+    loadDeviceTypes: function() {
+        var stored = localStorage.getItem('m25_monitor_device_types');
         if (stored) {
-            this.m25List = Ext.decode(stored);
+            this.deviceTypes = Ext.decode(stored);
         } else {
-            this.m25List = Ext.Array.clone(this.defaultList);
-            this.saveM25List();
+            this.deviceTypes = {};
         }
-        console.log('M25 Monitor: loaded list', this.m25List);
     },
 
-    saveM25List: function() {
-        localStorage.setItem('m25_monitor_list', Ext.encode(this.m25List));
-        console.log('M25 Monitor: saved list', this.m25List);
+    // Сохранение типов в localStorage (вызывается вручную или автоматически)
+    saveDeviceTypesToLocal: function() {
+        localStorage.setItem('m25_monitor_device_types', Ext.encode(this.deviceTypes));
+        Ext.Msg.alert('Сохранено', 'Типы оборудования сохранены в браузере');
     },
 
-    promptAddVehicle: function() {
+    // Сброс всех типов
+    resetAllTypes: function() {
         var me = this;
-        Ext.Msg.prompt('Добавить устройство M25', 'Введите vehid (Agent ID) или IMEI устройства:', function(btn, text) {
-            if (btn === 'ok' && text) {
-                var value = text.trim();
-                me.findAndAddVehicle(value);
+        Ext.Msg.confirm('Сброс', 'Удалить все сохранённые типы?', function(btn) {
+            if (btn === 'yes') {
+                me.deviceTypes = {};
+                me.saveDeviceTypesToLocal();
+                me.refreshTree();
             }
         });
     },
 
-    findAndAddVehicle: function(searchValue) {
-        var me = this;
-        Ext.Ajax.request({
-            url: '/ax/current_data.php',
-            method: 'GET',
-            success: function(response) {
-                var resp = Ext.decode(response.responseText);
-                var vehicles = resp.objects || resp.data || resp;
-                if (!Ext.isArray(vehicles)) vehicles = [];
-                var found = null;
-                Ext.Array.each(vehicles, function(veh) {
-                    var vehid = veh.vehid || veh.id;
-                    var imei = veh.imei || '';
-                    if (vehid == searchValue || imei == searchValue) {
-                        found = veh;
-                        return false;
-                    }
-                });
-                if (found) {
-                    var vehid = found.vehid || found.id;
-                    if (Ext.Array.contains(me.m25List, vehid)) {
-                        Ext.Msg.alert('Уже есть', 'Устройство уже в списке M25');
-                    } else {
-                        me.m25List.push(vehid);
-                        me.saveM25List();
-                        me.refreshTree();
-                        Ext.Msg.alert('Добавлено', 'Устройство добавлено в список M25');
-                    }
-                } else {
-                    Ext.Msg.alert('Не найдено', 'Устройство с таким vehid или IMEI не найдено в PILOT');
-                }
-            },
-            failure: function() {
-                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
-            }
-        });
-    },
-
-    promptRemoveVehicle: function() {
-        var me = this;
-        var listStr = me.m25List.join(', ');
-        Ext.Msg.prompt('Удалить устройство M25', 'Текущий список: ' + listStr + '\nВведите vehid для удаления:', function(btn, text) {
-            if (btn === 'ok' && text) {
-                var vehid = parseInt(text, 10);
-                if (isNaN(vehid)) {
-                    Ext.Msg.alert('Ошибка', 'Введите числовой vehid');
-                    return;
-                }
-                var index = Ext.Array.indexOf(me.m25List, vehid);
-                if (index !== -1) {
-                    me.m25List.splice(index, 1);
-                    me.saveM25List();
-                    me.refreshTree();
-                    Ext.Msg.alert('Удалено', 'Устройство удалено из списка M25');
-                } else {
-                    Ext.Msg.alert('Не найдено', 'Такого vehid нет в списке');
-                }
-            }
-        });
-    },
-
+    // Обновить дерево
     refreshTree: function() {
         var me = this;
         if (me.treePanel && me.treePanel.getStore()) {
-            me.loadM25Data(me.treePanel.getStore(), me.treePanel);
+            me.loadAllVehicles(me.treePanel.getStore(), me.treePanel);
         }
     },
 
@@ -180,7 +118,7 @@ Ext.define('Store.m25_monitor.Module', {
 
         var store = Ext.create('Ext.data.TreeStore', {
             root: {
-                text: 'M25 Devices',
+                text: 'Все транспортные средства',
                 expanded: true,
                 children: []
             },
@@ -194,7 +132,19 @@ Ext.define('Store.m25_monitor.Module', {
             columns: [
                 { xtype: 'treecolumn', text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
                 { text: 'IMEI', dataIndex: 'imei', flex: 1, sortable: true, renderer: function(v) { return v || '—'; } },
-                { text: 'vehid', dataIndex: 'vehid', flex: 1, sortable: true }
+                { text: 'Agent ID (vehid)', dataIndex: 'vehid', flex: 1, sortable: true },
+                {
+                    text: 'Тип оборудования',
+                    dataIndex: 'deviceType',
+                    flex: 1.5,
+                    sortable: true,
+                    renderer: function(value, meta, record) {
+                        // Делаем ячейку редактируемой по двойному клику
+                        var vehid = record.get('vehid');
+                        var val = value || 'не указан';
+                        return '<span class="editable-type" data-vehid="' + vehid + '" style="cursor:pointer; color:#2563eb;">' + Ext.String.htmlEncode(val) + ' ✎</span>';
+                    }
+                }
             ],
             listeners: {
                 selectionchange: function(sm, selected) {
@@ -203,26 +153,34 @@ Ext.define('Store.m25_monitor.Module', {
                     }
                 },
                 itemdblclick: function(view, record) {
-                    if (record.get('type') === 'veh') me.onVehicleSelected(record);
+                    if (record.get('type') === 'veh') {
+                        me.editDeviceType(record);
+                    }
+                },
+                // Обработка клика по редактируемому полю (делегирование)
+                render: function() {
+                    treePanel.getEl().on('click', function(e) {
+                        var target = e.getTarget('.editable-type');
+                        if (target) {
+                            var vehid = target.getAttribute('data-vehid');
+                            var record = store.getNodeById('veh_' + vehid);
+                            if (record) me.editDeviceType(record);
+                        }
+                    });
                 },
                 scope: me
             }
         });
 
-        me.loadM25Data(store, treePanel);
+        me.loadAllVehicles(store, treePanel);
         me.treePanel = treePanel;
         return treePanel;
     },
 
-    loadM25Data: function(store, treePanel) {
+    // Загрузка всех устройств из API
+    loadAllVehicles: function(store, treePanel) {
         var me = this;
-        console.log('M25 Monitor: loading data, filtering by list', me.m25List);
-
-        if (!me.m25List || me.m25List.length === 0) {
-            store.setRoot({ children: [{ text: 'Нет M25 устройств. Нажмите "Добавить"', leaf: true }] });
-            if (treePanel.getView()) treePanel.getView().refresh();
-            return;
-        }
+        console.log('M25 Monitor: загрузка всех устройств');
 
         Ext.Ajax.request({
             url: '/ax/current_data.php',
@@ -231,45 +189,76 @@ Ext.define('Store.m25_monitor.Module', {
                 try {
                     var resp = Ext.decode(response.responseText);
                     var vehicles = resp.objects || resp.data || resp;
-                    if (!Ext.isArray(vehicles)) vehicles = [];
+                    if (!Ext.isArray(vehicles)) {
+                        vehicles = [];
+                    }
 
-                    var filtered = [];
+                    var nodes = [];
                     Ext.Array.each(vehicles, function(veh) {
                         var vehid = veh.vehid || veh.id;
-                        if (Ext.Array.contains(me.m25List, vehid)) {
-                            filtered.push(me.normalizeVehicleNode(veh));
+                        if (vehid) {
+                            nodes.push(me.normalizeVehicleNode(veh));
                         }
                     });
 
-                    console.log('M25 Monitor: found', filtered.length, 'matching vehicles');
+                    console.log('M25 Monitor: загружено устройств:', nodes.length);
                     var treeData = [{
-                        text: 'M25 Devices',
+                        text: 'Все транспортные средства',
                         expanded: true,
-                        children: filtered
+                        children: nodes
                     }];
                     store.setRoot({ children: treeData });
                     if (treePanel && treePanel.getView) treePanel.getView().refresh();
                 } catch (e) {
-                    console.error('M25 Monitor: error', e);
-                    Ext.Msg.alert('Ошибка', 'Ошибка загрузки данных');
+                    console.error('M25 Monitor: ошибка', e);
+                    Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
                 }
             },
             failure: function() {
-                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
+                Ext.Msg.alert('Ошибка', 'Ошибка соединения с PILOT API');
             }
         });
     },
 
+    // Нормализация узла с учётом сохранённого типа
     normalizeVehicleNode: function(vehicle) {
+        var vehid = vehicle.vehid || vehicle.id;
+        // Пытаемся определить тип из API (если есть)
+        var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
+        // Если тип сохранён в localStorage, используем его; иначе берем из API
+        var savedType = this.deviceTypes[vehid];
+        var displayType = savedType || apiType || '';
         return {
-            id: 'veh_' + (vehicle.vehid || vehicle.id),
+            id: 'veh_' + vehid,
             text: vehicle.text || vehicle.name || 'Без имени',
-            vehid: vehicle.vehid || vehicle.id,
+            vehid: vehid,
             imei: vehicle.imei || '',
+            deviceType: displayType,
+            rawApiType: apiType, // сохраняем оригинал для сброса
             type: 'veh',
             leaf: true,
             iconCls: 'fa fa-car'
         };
+    },
+
+    // Редактирование типа оборудования
+    editDeviceType: function(record) {
+        var me = this;
+        var vehid = record.get('vehid');
+        var currentType = record.get('deviceType') || '';
+        Ext.Msg.prompt('Редактировать тип оборудования', 'Введите тип для устройства "' + record.get('text') + '" (например, M25):', function(btn, text) {
+            if (btn === 'ok' && text !== null) {
+                var newType = text.trim();
+                if (newType === '') {
+                    // Если пусто, удаляем сохранённый тип и используем API
+                    delete me.deviceTypes[vehid];
+                } else {
+                    me.deviceTypes[vehid] = newType;
+                }
+                me.saveDeviceTypesToLocal(); // автосохранение
+                me.refreshTree(); // перезагружаем дерево
+            }
+        }, this, false, currentType);
     },
 
     createMainPanel: function() {
@@ -288,7 +277,7 @@ Ext.define('Store.m25_monitor.Module', {
             dock: 'top',
             items: [
                 {
-                    text: 'Обновить',
+                    text: 'Обновить iframe',
                     iconCls: 'fa fa-refresh',
                     handler: function() {
                         if (me.currentIframeSrc && me.currentIframeSrc !== 'about:blank') {
@@ -311,7 +300,7 @@ Ext.define('Store.m25_monitor.Module', {
                 '->',
                 {
                     xtype: 'component',
-                    html: '<span style="color:#888;">Выберите объект в левой панели</span>',
+                    html: '<span style="color:#888;">Выберите устройство в левой панели</span>',
                     itemId: 'infoText'
                 }
             ]
@@ -319,7 +308,7 @@ Ext.define('Store.m25_monitor.Module', {
 
         var mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            title: 'M25 Monitor — внешняя страница',
+            title: 'Информация об устройстве (внешняя страница)',
             tbar: toolbar,
             items: [iframe]
         });
@@ -350,9 +339,9 @@ Ext.define('Store.m25_monitor.Module', {
 
         var infoText = mainPanel.down('#infoText');
         if (infoText) {
-            infoText.update('<span style="color:#2563eb;">Текущий объект: ' + Ext.String.htmlEncode(vehicleName) + '</span>');
+            infoText.update('<span style="color:#2563eb;">Текущее устройство: ' + Ext.String.htmlEncode(vehicleName) + '</span>');
         }
 
-        console.log('M25 Monitor: selected', vehicleName, vehid);
+        console.log('M25 Monitor: выбрано', vehicleName, vehid);
     }
 });
