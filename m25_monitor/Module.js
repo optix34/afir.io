@@ -1,5 +1,5 @@
 /**
- * M25 Monitor - PILOT Extension (монолитная версия с гибкой фильтрацией)
+ * M25 Monitor - PILOT Extension
  * 
  * Отображает в левой навигации только объекты с оборудованием M25.
  * При выборе объекта в правой панели открывается iframe с https://mega-info.su/dealer2/
@@ -10,232 +10,339 @@
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
+    /**
+     * Имя расширения (должно совпадать с именем класса)
+     */
     extensionName: 'm25_monitor',
 
+    /**
+     * Точка входа в расширение, вызывается PILOT после загрузки Module.js
+     */
     initModule: function() {
         var me = this;
 
+        console.log('M25 Monitor: initModule started');
+
+        // Проверка наличия skeleton и необходимых контейнеров
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
-            Ext.log.error('m25_monitor: skeleton not ready');
+            console.error('M25 Monitor: skeleton, navigation or mapframe not found');
             return;
         }
 
-        // Левая панель
+        // 1. Создаём левую навигационную панель (вкладка)
         var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
-            title: l('M25 Monitor'),
+            title: 'M25 Monitor',
             iconCls: 'fa fa-microchip',
             iconAlign: 'top',
             minimized: true,
             layout: 'fit',
-            items: [me.createTreePanel()]
+            items: [
+                Ext.create('Ext.panel.Panel', {
+                    layout: 'fit',
+                    border: false,
+                    items: me.createTreePanel()
+                })
+            ]
         });
 
-        // Правая панель
+        // 2. Создаём главную панель (правая область) с iframe
         var mainPanel = me.createMainPanel();
 
+        // 3. Связываем навигацию с главной панелью (обязательное правило)
         navTab.map_frame = mainPanel;
 
+        // 4. Добавляем вкладку в левую навигацию и панель в mapframe
         skeleton.navigation.add(navTab);
         skeleton.mapframe.add(mainPanel);
 
+        // Сохраняем ссылку на mainPanel для доступа из дерева
         me.mainPanel = mainPanel;
-        Ext.log('[M25] Module started');
+
+        console.log('M25 Monitor: navigation and main panel added');
     },
 
+    /**
+     * Создаёт TreePanel с загрузкой и фильтрацией объектов M25
+     * @return {Ext.tree.Panel}
+     */
     createTreePanel: function() {
         var me = this;
+
+        // Создаём TreeStore с корневым узлом
         var store = Ext.create('Ext.data.TreeStore', {
-            root: { text: l('M25 Devices'), expanded: true, children: [] }
+            root: {
+                text: 'M25 Devices',
+                expanded: true,
+                children: []
+            },
+            sorters: [{
+                property: 'text',
+                direction: 'ASC'
+            }]
         });
 
-        me.loadM25TreeData(store);
-
-        return Ext.create('Ext.tree.Panel', {
+        // Создаём TreePanel с колонками
+        var treePanel = Ext.create('Ext.tree.Panel', {
             store: store,
             rootVisible: true,
             useArrows: true,
             columns: [
-                { xtype: 'treecolumn', text: l('Объект'), dataIndex: 'text', flex: 2 },
-                { text: l('IMEI'), dataIndex: 'imei', flex: 1, renderer: function(v) { return v || '—'; } },
-                { text: l('Оборудование'), dataIndex: 'equipment', flex: 1.5, renderer: function(v) { return v || '—'; } }
+                {
+                    xtype: 'treecolumn',
+                    text: 'Объект',
+                    dataIndex: 'text',
+                    flex: 2,
+                    sortable: true
+                },
+                {
+                    text: 'IMEI',
+                    dataIndex: 'imei',
+                    flex: 1,
+                    sortable: true,
+                    renderer: function(value) {
+                        return value || '—';
+                    }
+                },
+                {
+                    text: 'Оборудование',
+                    dataIndex: 'equipment',
+                    flex: 1.5,
+                    sortable: true,
+                    renderer: function(value) {
+                        return value || '—';
+                    }
+                }
             ],
             listeners: {
                 selectionchange: function(sm, selected) {
-                    if (selected && selected[0] && selected[0].get('vehid')) {
-                        me.onVehicleSelected(selected[0]);
+                    if (selected && selected.length > 0) {
+                        var node = selected[0];
+                        if (node && node.get('type') === 'veh') {
+                            me.onVehicleSelected(node);
+                        }
+                    }
+                },
+                itemdblclick: function(view, record) {
+                    if (record.get('type') === 'veh') {
+                        me.onVehicleSelected(record);
                     }
                 },
                 scope: me
             }
         });
+
+        // Загружаем данные из PILOT
+        me.loadM25Data(store, treePanel);
+        me.treePanel = treePanel;
+
+        return treePanel;
     },
 
-    loadM25TreeData: function(store) {
+    /**
+     * Загружает /ax/current_data.php, фильтрует объекты с M25 и заполняет store
+     * @param {Ext.data.TreeStore} store
+     * @param {Ext.tree.Panel} treePanel
+     */
+    loadM25Data: function(store, treePanel) {
         var me = this;
+
+        console.log('M25 Monitor: loading data from /ax/current_data.php');
+
         Ext.Ajax.request({
-            url: '/ax/tree.php',
-            params: { vehs: 1, state: 1 },
-            success: function(resp) {
+            url: '/ax/current_data.php',
+            method: 'GET',
+            success: function(response) {
                 try {
-                    var data = Ext.decode(resp.responseText);
-                    if (!data || !data.length) {
-                        Ext.Msg.alert(l('Ошибка'), l('Пустой ответ от PILOT.'));
+                    var data = Ext.decode(response.responseText);
+                    console.log('M25 Monitor: raw data received', data);
+
+                    if (!Ext.isArray(data)) {
+                        console.error('M25 Monitor: response is not an array', data);
+                        Ext.Msg.alert('Ошибка', 'Получены некорректные данные от сервера.');
                         return;
                     }
 
-                    // Диагностика: выведем первый транспорт для отладки
-                    if (data.length) {
-                        var sample = me.findFirstVehicle(data);
-                        if (sample) {
-                            console.log('[M25] Пример транспортного средства:', sample);
-                            console.log('[M25] Все ключи:', Object.keys(sample));
-                            console.log('[M25] Значение поля devicetype:', sample.devicetype);
-                            console.log('[M25] Значение поля equipment:', sample.equipment);
-                            console.log('[M25] Значение поля model:', sample.model);
-                        }
-                    }
+                    // Фильтруем объекты с оборудованием M25
+                    var filteredVehicles = me.filterM25Vehicles(data);
+                    console.log('M25 Monitor: filtered vehicles', filteredVehicles);
 
-                    var filtered = me.filterM25Nodes(data);
-                    console.log('[M25] Отфильтровано объектов M25:', filtered.length);
+                    // Преобразуем в формат дерева (плоский список под корнем)
+                    var treeData = [{
+                        text: 'M25 Devices',
+                        expanded: true,
+                        children: filteredVehicles
+                    }];
 
                     store.setRoot({
-                        text: l('M25 Devices'),
-                        expanded: true,
-                        children: filtered
+                        children: treeData
                     });
 
-                    if (filtered.length === 0) {
-                        Ext.Msg.alert(l('Информация'), l('Объекты с оборудованием M25 не найдены. Проверьте консоль (F12) для деталей.'));
+                    if (filteredVehicles.length === 0) {
+                        Ext.Msg.alert('Информация', 'Объекты с оборудованием M25 не найдены.');
                     }
+
+                    // Принудительно обновляем вид дерева
+                    if (treePanel && treePanel.getView) {
+                        treePanel.getView().refresh();
+                    }
+
                 } catch (e) {
-                    console.error('[M25] Ошибка:', e);
-                    Ext.Msg.alert(l('Ошибка'), l('Некорректный ответ сервера.'));
+                    console.error('M25 Monitor: error parsing response', e);
+                    Ext.Msg.alert('Ошибка', 'Некорректный ответ от сервера PILOT.');
                 }
             },
-            failure: function() {
-                Ext.Msg.alert(l('Ошибка'), l('Не удалось загрузить данные.'));
-            }
+            failure: function(response) {
+                console.error('M25 Monitor: failed to load /ax/current_data.php', response.status);
+                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список объектов. Проверьте соединение.');
+            },
+            scope: me
         });
     },
 
     /**
-     * Вспомогательная функция для диагностики: находит первый транспорт в дереве.
+     * Фильтрует массив транспортных средств, оставляя только те, у которых оборудование содержит "m25"
+     * @param {Array} vehicles - массив объектов от /ax/current_data.php
+     * @return {Array} - отфильтрованный массив узлов для дерева
      */
-    findFirstVehicle: function(nodes) {
-        for (var i = 0; i < nodes.length; i++) {
-            var n = nodes[i];
-            if (n.type === 'veh' || n.vehid) return n;
-            if (n.children) {
-                var found = this.findFirstVehicle(n.children);
-                if (found) return found;
-            }
-        }
-        return null;
-    },
+    filterM25Vehicles: function(vehicles) {
+        var me = this;
+        var result = [];
 
-    /**
-     * Гибкое извлечение модели устройства из узла.
-     * Пробует несколько возможных имён полей.
-     */
-    getEquipmentField: function(node) {
-        var candidates = ['devicetype', 'equipment', 'model', 'device', 'hardware', 'type', 'tracker', 'equipment_name', 'device_model'];
-        for (var i = 0; i < candidates.length; i++) {
-            var val = node[candidates[i]];
-            if (val !== undefined && val !== null && typeof val === 'string') {
-                return val;
-            }
-        }
-        // Если не нашли, ищем в любом поле, содержащем "equip" или "device" (регистронезависимо)
-        for (var key in node) {
-            if (typeof node[key] === 'string') {
-                var lowerKey = key.toLowerCase();
-                if (lowerKey.indexOf('equip') !== -1 || lowerKey.indexOf('device') !== -1 || lowerKey === 'type') {
-                    return node[key];
-                }
-            }
-        }
-        return '';
-    },
-
-    filterM25Nodes: function(nodes) {
-        var me = this, result = [];
-        Ext.Array.each(nodes, function(node) {
-            var isVehicle = (node.type === 'veh' || node.vehid);
-            // Используем гибкое извлечение поля
-            var equipmentValue = me.getEquipmentField(node);
-            var hasM25 = equipmentValue && equipmentValue.toLowerCase().indexOf('m25') !== -1;
-
-            if (isVehicle && hasM25) {
-                result.push(me.normalizeVehicleNode(node, equipmentValue));
-            } else if (node.children && node.children.length) {
-                var filteredChildren = me.filterM25Nodes(node.children);
-                if (filteredChildren.length) {
-                    result.push(me.normalizeGroupNode(node, filteredChildren));
-                }
+        Ext.Array.each(vehicles, function(vehicle) {
+            var equipment = vehicle.equipment || vehicle.hardware || vehicle.model || '';
+            if (equipment.toLowerCase().indexOf('m25') !== -1) {
+                result.push(me.normalizeVehicleNode(vehicle));
             }
         });
+
         return result;
     },
 
-    normalizeVehicleNode: function(vehNode, equipmentValue) {
+    /**
+     * Нормализует узел транспортного средства для TreeStore
+     * @param {Object} vehicle - исходный объект из API
+     * @return {Object} узел для дерева
+     */
+    normalizeVehicleNode: function(vehicle) {
         return {
-            text: vehNode.text || l('Без имени'),
-            vehid: vehNode.vehid,
-            imei: vehNode.imei || '',
-            equipment: equipmentValue || vehNode.equipment || '',
+            id: 'veh_' + (vehicle.vehid || vehicle.id),
+            text: vehicle.text || vehicle.name || 'Без имени',
+            vehid: vehicle.vehid || vehicle.id,
+            imei: vehicle.imei || '',
+            equipment: vehicle.equipment || '',
             type: 'veh',
             leaf: true,
             iconCls: 'fa fa-car'
         };
     },
 
-    normalizeGroupNode: function(groupNode, children) {
-        return {
-            text: groupNode.text || l('Папка'),
-            type: 'group',
-            leaf: false,
-            expanded: false,
-            children: children
-        };
-    },
-
+    /**
+     * Создаёт главную панель с iframe и тулбаром
+     * @return {Ext.panel.Panel}
+     */
     createMainPanel: function() {
         var me = this;
+
+        // Создаём iframe
         var iframe = Ext.create('Ext.Component', {
-            autoEl: { tag: 'iframe', src: 'about:blank', style: 'width:100%;height:100%;border:none;' },
-            getIframeDom: function() { return this.getEl().dom; }
+            autoEl: {
+                tag: 'iframe',
+                src: 'about:blank',
+                style: 'width: 100%; height: 100%; border: none;'
+            },
+            getIframeDom: function() {
+                return this.getEl().dom;
+            }
         });
+
+        // Панель инструментов
         var toolbar = Ext.create('Ext.toolbar.Toolbar', {
             dock: 'top',
             items: [
-                { text: l('Обновить'), iconCls: 'fa fa-refresh', handler: function() { var d = iframe.getIframeDom(); if(d) d.src = d.src; } },
-                { text: l('Открыть в новом окне'), iconCls: 'fa fa-external-link', handler: function() { if(me.currentIframeSrc && me.currentIframeSrc !== 'about:blank') window.open(me.currentIframeSrc, '_blank'); else Ext.Msg.alert(l('Информация'), l('Сначала выберите объект.')); } },
+                {
+                    text: 'Обновить',
+                    iconCls: 'fa fa-refresh',
+                    handler: function() {
+                        var iframeEl = iframe.getIframeDom();
+                        if (iframeEl && me.currentIframeSrc && me.currentIframeSrc !== 'about:blank') {
+                            iframeEl.src = me.currentIframeSrc;
+                        }
+                    },
+                    scope: me
+                },
+                {
+                    text: 'Открыть в новом окне',
+                    iconCls: 'fa fa-external-link',
+                    handler: function() {
+                        if (me.currentIframeSrc && me.currentIframeSrc !== 'about:blank') {
+                            window.open(me.currentIframeSrc, '_blank');
+                        } else {
+                            Ext.Msg.alert('Информация', 'Сначала выберите объект.');
+                        }
+                    },
+                    scope: me
+                },
                 '->',
-                { xtype: 'component', html: '<span style="color:#888;">' + l('Выберите объект в левой панели') + '</span>', itemId: 'infoText' }
+                {
+                    xtype: 'component',
+                    html: '<span style="color:#888;">Выберите объект в левой панели</span>',
+                    itemId: 'infoText'
+                }
             ]
         });
+
+        // Основная панель
         var mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            title: l('M25 Monitor — внешняя страница'),
+            title: 'M25 Monitor — внешняя страница',
             tbar: toolbar,
-            items: [iframe],
-            currentIframeSrc: 'about:blank'
+            items: [iframe]
         });
+
         mainPanel.iframe = iframe;
         mainPanel.toolbar = toolbar;
+        me.currentIframeSrc = 'about:blank';
+
         return mainPanel;
     },
 
+    /**
+     * Обработчик выбора транспортного средства
+     * @param {Ext.data.NodeInterface} record
+     */
     onVehicleSelected: function(record) {
-        var mainPanel = this.mainPanel;
+        var me = this;
+        var mainPanel = me.mainPanel;
         if (!mainPanel) return;
+
         var vehid = record.get('vehid');
         var vehicleName = record.get('text');
-        var url = 'https://mega-info.su/dealer2/';
-        if (vehid) url += (url.indexOf('?') === -1 ? '?' : '&') + 'vehicle_id=' + encodeURIComponent(vehid);
-        var iframeDom = mainPanel.iframe.getIframeDom();
-        if (iframeDom) { iframeDom.src = url; mainPanel.currentIframeSrc = url; }
+
+        // Базовый URL внешней страницы
+        var baseUrl = 'https://mega-info.su/dealer2/';
+        var url = baseUrl;
+
+        // Добавляем параметр vehicle_id, если есть vehid (опционально)
+        if (vehid) {
+            url = baseUrl + (baseUrl.indexOf('?') === -1 ? '?' : '&') + 'vehicle_id=' + encodeURIComponent(vehid);
+        }
+
+        // Обновляем iframe
+        var iframe = mainPanel.iframe;
+        if (iframe && iframe.getIframeDom) {
+            var iframeDom = iframe.getIframeDom();
+            if (iframeDom) {
+                iframeDom.src = url;
+                me.currentIframeSrc = url;
+            }
+        }
+
+        // Обновляем информационную строку
         var infoText = mainPanel.down('#infoText');
-        if (infoText) infoText.update('<span style="color:#2563eb;">' + l('Текущий объект: ') + Ext.String.htmlEncode(vehicleName) + '</span>');
+        if (infoText) {
+            infoText.update('<span style="color:#2563eb;">Текущий объект: ' + Ext.String.htmlEncode(vehicleName) + '</span>');
+        }
+
+        console.log('M25 Monitor: selected vehicle', vehicleName, 'vehid=', vehid, 'url=', url);
     }
 });
