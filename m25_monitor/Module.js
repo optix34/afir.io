@@ -1,42 +1,76 @@
 /**
  * M25 Monitor - PILOT Extension
- * 
- * Отображает в левой навигации только объекты с типом устройства M25.
- * При выборе объекта в правой панели открывается iframe с https://mega-info.su/dealer2/
- * 
- * @class Store.m25_monitor.Module
- * @extends Ext.Component
+ * Ручное управление списком M25 устройств.
+ * Сохраняет список vehid в localStorage.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
+    // === ЗДЕСЬ ЗАДАЙТЕ ИЗВЕСТНЫЕ M25 УСТРОЙСТВА (vehid) ===
+    defaultList: [79707],  // добавьте другие vehid через запятую, например [79707, 12345, 67890]
+
     initModule: function() {
         var me = this;
-        console.log('M25 Monitor: initModule started');
+        console.log('M25 Monitor: initModule');
 
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
-            console.error('M25 Monitor: skeleton, navigation or mapframe not found');
+            console.error('M25 Monitor: skeleton not ready');
             return;
         }
 
-        // Левая навигационная панель
+        // Инициализируем список (загружаем из localStorage или используем defaultList)
+        me.loadM25List();
+
+        // Левая панель с кнопками и деревом
+        var navPanel = Ext.create('Ext.panel.Panel', {
+            layout: 'border',
+            border: false,
+            items: [
+                {
+                    region: 'north',
+                    xtype: 'toolbar',
+                    items: [
+                        {
+                            text: 'Добавить M25',
+                            iconCls: 'fa fa-plus',
+                            handler: me.promptAddVehicle,
+                            scope: me
+                        },
+                        {
+                            text: 'Удалить',
+                            iconCls: 'fa fa-trash',
+                            handler: me.promptRemoveVehicle,
+                            scope: me
+                        },
+                        '->',
+                        {
+                            text: 'Обновить список',
+                            iconCls: 'fa fa-refresh',
+                            handler: me.refreshTree,
+                            scope: me
+                        }
+                    ]
+                },
+                {
+                    region: 'center',
+                    xtype: 'panel',
+                    layout: 'fit',
+                    items: me.createTreePanel()
+                }
+            ]
+        });
+
         var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
             title: 'M25 Monitor',
             iconCls: 'fa fa-microchip',
             iconAlign: 'top',
             minimized: true,
             layout: 'fit',
-            items: [{
-                xtype: 'panel',
-                layout: 'fit',
-                border: false,
-                items: me.createTreePanel()
-            }]
+            items: [navPanel]
         });
 
-        // Главная панель с iframe
         var mainPanel = me.createMainPanel();
         navTab.map_frame = mainPanel;
 
@@ -44,7 +78,101 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.mapframe.add(mainPanel);
 
         me.mainPanel = mainPanel;
-        console.log('M25 Monitor: navigation and main panel added');
+        me.navTab = navTab;
+    },
+
+    loadM25List: function() {
+        var stored = localStorage.getItem('m25_monitor_list');
+        if (stored) {
+            this.m25List = Ext.decode(stored);
+        } else {
+            this.m25List = Ext.Array.clone(this.defaultList);
+            this.saveM25List();
+        }
+        console.log('M25 Monitor: loaded list', this.m25List);
+    },
+
+    saveM25List: function() {
+        localStorage.setItem('m25_monitor_list', Ext.encode(this.m25List));
+        console.log('M25 Monitor: saved list', this.m25List);
+    },
+
+    promptAddVehicle: function() {
+        var me = this;
+        Ext.Msg.prompt('Добавить устройство M25', 'Введите vehid (Agent ID) или IMEI устройства:', function(btn, text) {
+            if (btn === 'ok' && text) {
+                var value = text.trim();
+                me.findAndAddVehicle(value);
+            }
+        });
+    },
+
+    findAndAddVehicle: function(searchValue) {
+        var me = this;
+        Ext.Ajax.request({
+            url: '/ax/current_data.php',
+            method: 'GET',
+            success: function(response) {
+                var resp = Ext.decode(response.responseText);
+                var vehicles = resp.objects || resp.data || resp;
+                if (!Ext.isArray(vehicles)) vehicles = [];
+                var found = null;
+                Ext.Array.each(vehicles, function(veh) {
+                    var vehid = veh.vehid || veh.id;
+                    var imei = veh.imei || '';
+                    if (vehid == searchValue || imei == searchValue) {
+                        found = veh;
+                        return false;
+                    }
+                });
+                if (found) {
+                    var vehid = found.vehid || found.id;
+                    if (Ext.Array.contains(me.m25List, vehid)) {
+                        Ext.Msg.alert('Уже есть', 'Устройство уже в списке M25');
+                    } else {
+                        me.m25List.push(vehid);
+                        me.saveM25List();
+                        me.refreshTree();
+                        Ext.Msg.alert('Добавлено', 'Устройство добавлено в список M25');
+                    }
+                } else {
+                    Ext.Msg.alert('Не найдено', 'Устройство с таким vehid или IMEI не найдено в PILOT');
+                }
+            },
+            failure: function() {
+                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
+            }
+        });
+    },
+
+    promptRemoveVehicle: function() {
+        var me = this;
+        var listStr = me.m25List.join(', ');
+        Ext.Msg.prompt('Удалить устройство M25', 'Текущий список: ' + listStr + '\nВведите vehid для удаления:', function(btn, text) {
+            if (btn === 'ok' && text) {
+                var vehid = parseInt(text, 10);
+                if (isNaN(vehid)) {
+                    Ext.Msg.alert('Ошибка', 'Введите числовой vehid');
+                    return;
+                }
+                var index = Ext.Array.indexOf(me.m25List, vehid);
+                if (index !== -1) {
+                    me.m25List.splice(index, 1);
+                    me.saveM25List();
+                    me.refreshTree();
+                    Ext.Msg.alert('Удалено', 'Устройство удалено из списка M25');
+                } else {
+                    Ext.Msg.alert('Не найдено', 'Такого vehid нет в списке');
+                }
+            }
+        });
+    },
+
+    refreshTree: function() {
+        var me = this;
+        if (me.treePanel && me.treePanel.getStore()) {
+            me.loadM25Data(me.treePanel.getStore(), me.treePanel);
+        }
     },
 
     createTreePanel: function() {
@@ -66,7 +194,7 @@ Ext.define('Store.m25_monitor.Module', {
             columns: [
                 { xtype: 'treecolumn', text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
                 { text: 'IMEI', dataIndex: 'imei', flex: 1, sortable: true, renderer: function(v) { return v || '—'; } },
-                { text: 'Тип устройства', dataIndex: 'deviceType', flex: 1.5, sortable: true, renderer: function(v) { return v || '—'; } }
+                { text: 'vehid', dataIndex: 'vehid', flex: 1, sortable: true }
             ],
             listeners: {
                 selectionchange: function(sm, selected) {
@@ -81,127 +209,20 @@ Ext.define('Store.m25_monitor.Module', {
             }
         });
 
-        // Пытаемся загрузить данные через tags.php (с иерархией)
-        me.loadDataFromTags(store, treePanel);
+        me.loadM25Data(store, treePanel);
         me.treePanel = treePanel;
         return treePanel;
     },
 
-    /**
-     * Загрузка из /ax/mod/tags.php?cmd=groups (основной источник)
-     */
-    loadDataFromTags: function(store, treePanel) {
+    loadM25Data: function(store, treePanel) {
         var me = this;
-        console.log('M25 Monitor: loading from /ax/mod/tags.php?cmd=groups');
+        console.log('M25 Monitor: loading data, filtering by list', me.m25List);
 
-        Ext.Ajax.request({
-            url: '/ax/mod/tags.php',
-            params: {
-                cmd: 'groups',
-                _dc: new Date().getTime(),
-                page: 1,
-                start: 0,
-                limit: 1000
-            },
-            method: 'GET',
-            success: function(response) {
-                try {
-                    var resp = Ext.decode(response.responseText);
-                    console.log('M25 Monitor: tags.php raw response', resp);
-
-                    // Ожидаемая структура: resp.data — массив групп/объектов
-                    var groups = resp.data || resp;
-                    if (!Ext.isArray(groups)) {
-                        groups = [groups];
-                    }
-
-                    var filteredRoot = me.filterM25FromGroups(groups);
-                    console.log('M25 Monitor: filtered M25 devices from tags.php:', filteredRoot.length);
-
-                    store.setRoot({ children: filteredRoot });
-                    if (treePanel && treePanel.getView) treePanel.getView().refresh();
-
-                    if (!filteredRoot.length || (filteredRoot.length === 1 && filteredRoot[0].children && filteredRoot[0].children.length === 0)) {
-                        console.log('M25 Monitor: no M25 devices in tags.php, falling back to current_data.php');
-                        me.fallbackToCurrentData(store, treePanel);
-                    }
-                } catch (e) {
-                    console.error('M25 Monitor: error parsing tags.php', e);
-                    me.fallbackToCurrentData(store, treePanel);
-                }
-            },
-            failure: function(response) {
-                console.warn('M25 Monitor: tags.php request failed (status ' + response.status + '), falling back');
-                me.fallbackToCurrentData(store, treePanel);
-            },
-            scope: me
-        });
-    },
-
-    /**
-     * Рекурсивная фильтрация групп/дерева из tags.php
-     * Оставляет только те узлы, которые являются ТС с типом M25,
-     * и папки, содержащие такие ТС.
-     */
-    filterM25FromGroups: function(nodes) {
-        var me = this;
-        var result = [];
-
-        Ext.Array.each(nodes, function(node) {
-            var isVehicle = (node.type === 'veh' || node.vehid);
-            var isM25 = false;
-            var deviceTypeValue = '';
-
-            if (isVehicle) {
-                // Пытаемся определить тип устройства по различным полям
-                var typeFields = ['model', 'device_type', 'type_name', 'hardware', 'equipment', 'devicetype'];
-                for (var i = 0; i < typeFields.length; i++) {
-                    var val = node[typeFields[i]];
-                    if (val !== undefined && val !== null) {
-                        deviceTypeValue = String(val);
-                        if (deviceTypeValue.toLowerCase() === 'm25') {
-                            isM25 = true;
-                            break;
-                        }
-                    }
-                }
-                // Дополнительная проверка: может быть поле 'type' со значением 'M25' (у некоторых API)
-                if (!isM25 && node.type && String(node.type).toLowerCase() === 'm25') {
-                    isM25 = true;
-                    deviceTypeValue = node.type;
-                }
-
-                if (isM25) {
-                    // Добавляем узел ТС
-                    result.push(me.normalizeVehicleNode(node, deviceTypeValue));
-                }
-            } else {
-                // Это папка/группа – обрабатываем детей
-                var children = node.children || [];
-                var filteredChildren = me.filterM25FromGroups(children);
-                if (filteredChildren.length > 0) {
-                    // Сохраняем группу с отфильтрованными детьми
-                    result.push({
-                        id: node.id || Ext.id(),
-                        text: node.text || node.name || 'Папка',
-                        type: 'group',
-                        leaf: false,
-                        expanded: false,
-                        children: filteredChildren
-                    });
-                }
-            }
-        });
-
-        return result;
-    },
-
-    /**
-     * Резервный метод: загрузка из /ax/current_data.php (плоский список)
-     */
-    fallbackToCurrentData: function(store, treePanel) {
-        var me = this;
-        console.log('M25 Monitor: fallback to /ax/current_data.php');
+        if (!me.m25List || me.m25List.length === 0) {
+            store.setRoot({ children: [{ text: 'Нет M25 устройств. Нажмите "Добавить"', leaf: true }] });
+            if (treePanel.getView()) treePanel.getView().refresh();
+            return;
+        }
 
         Ext.Ajax.request({
             url: '/ax/current_data.php',
@@ -210,96 +231,41 @@ Ext.define('Store.m25_monitor.Module', {
                 try {
                     var resp = Ext.decode(response.responseText);
                     var vehicles = resp.objects || resp.data || resp;
-                    if (!Ext.isArray(vehicles)) {
-                        vehicles = [];
-                    }
-                    console.log('M25 Monitor: current_data.php vehicles count:', vehicles.length);
+                    if (!Ext.isArray(vehicles)) vehicles = [];
 
-                    var filtered = me.filterM25VehiclesFlat(vehicles);
-                    console.log('M25 Monitor: filtered M25 devices from current_data.php:', filtered.length);
+                    var filtered = [];
+                    Ext.Array.each(vehicles, function(veh) {
+                        var vehid = veh.vehid || veh.id;
+                        if (Ext.Array.contains(me.m25List, vehid)) {
+                            filtered.push(me.normalizeVehicleNode(veh));
+                        }
+                    });
 
+                    console.log('M25 Monitor: found', filtered.length, 'matching vehicles');
                     var treeData = [{
                         text: 'M25 Devices',
                         expanded: true,
                         children: filtered
                     }];
-
                     store.setRoot({ children: treeData });
                     if (treePanel && treePanel.getView) treePanel.getView().refresh();
-
-                    if (filtered.length === 0) {
-                        Ext.Msg.alert('Информация', 'Объекты с типом устройства M25 не найдены ни в одном источнике.');
-                    }
                 } catch (e) {
-                    console.error('M25 Monitor: error parsing current_data.php', e);
-                    Ext.Msg.alert('Ошибка', 'Ошибка обработки данных от сервера.');
+                    console.error('M25 Monitor: error', e);
+                    Ext.Msg.alert('Ошибка', 'Ошибка загрузки данных');
                 }
             },
-            failure: function(response) {
-                console.error('M25 Monitor: current_data.php request failed', response.status);
-                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список объектов ни из одного API.');
-            },
-            scope: me
+            failure: function() {
+                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
+            }
         });
     },
 
-    /**
-     * Фильтрация плоского массива транспортных средств (для current_data.php)
-     */
-    filterM25VehiclesFlat: function(vehicles) {
-        var me = this;
-        var result = [];
-        var typeFields = ['model', 'device_type', 'type_name', 'hardware', 'equipment', 'devicetype'];
-
-        Ext.Array.each(vehicles, function(vehicle) {
-            var isM25 = false;
-            var deviceTypeValue = '';
-
-            for (var i = 0; i < typeFields.length; i++) {
-                var val = vehicle[typeFields[i]];
-                if (val !== undefined && val !== null) {
-                    deviceTypeValue = String(val);
-                    if (deviceTypeValue.toLowerCase() === 'm25') {
-                        isM25 = true;
-                        break;
-                    }
-                }
-            }
-            if (!isM25 && vehicle.type && String(vehicle.type).toLowerCase() === 'm25') {
-                isM25 = true;
-                deviceTypeValue = vehicle.type;
-            }
-
-            if (isM25) {
-                result.push(me.normalizeVehicleNode(vehicle, deviceTypeValue));
-            }
-        });
-        return result;
-    },
-
-    /**
-     * Преобразование объекта ТС в узел дерева
-     * @param {Object} vehicle
-     * @param {String} detectedType (опционально) – уже определённый тип устройства
-     */
-    normalizeVehicleNode: function(vehicle, detectedType) {
-        var deviceType = detectedType || '';
-        if (!deviceType) {
-            var typeFields = ['model', 'device_type', 'type_name', 'hardware', 'equipment', 'devicetype'];
-            for (var i = 0; i < typeFields.length; i++) {
-                var val = vehicle[typeFields[i]];
-                if (val !== undefined && val !== null) {
-                    deviceType = String(val);
-                    break;
-                }
-            }
-        }
+    normalizeVehicleNode: function(vehicle) {
         return {
             id: 'veh_' + (vehicle.vehid || vehicle.id),
             text: vehicle.text || vehicle.name || 'Без имени',
             vehid: vehicle.vehid || vehicle.id,
             imei: vehicle.imei || '',
-            deviceType: deviceType,
             type: 'veh',
             leaf: true,
             iconCls: 'fa fa-car'
@@ -329,8 +295,7 @@ Ext.define('Store.m25_monitor.Module', {
                             var iframeEl = iframe.getIframeDom();
                             if (iframeEl) iframeEl.src = me.currentIframeSrc;
                         }
-                    },
-                    scope: me
+                    }
                 },
                 {
                     text: 'Открыть в новом окне',
@@ -341,8 +306,7 @@ Ext.define('Store.m25_monitor.Module', {
                         } else {
                             Ext.Msg.alert('Информация', 'Сначала выберите объект.');
                         }
-                    },
-                    scope: me
+                    }
                 },
                 '->',
                 {
@@ -389,6 +353,6 @@ Ext.define('Store.m25_monitor.Module', {
             infoText.update('<span style="color:#2563eb;">Текущий объект: ' + Ext.String.htmlEncode(vehicleName) + '</span>');
         }
 
-        console.log('M25 Monitor: selected vehicle', vehicleName, 'vehid=', vehid, 'url=', url);
+        console.log('M25 Monitor: selected', vehicleName, vehid);
     }
 });
