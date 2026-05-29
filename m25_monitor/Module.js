@@ -46,7 +46,7 @@ Ext.define('Store.m25_monitor.Module', {
             ]
         });
 
-        // 2. Создаём главную панель (правая область с iframe)
+        // 2. Создаём главную панель (правую область с iframe)
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {});
 
         // 3. Связываем навигацию с главной панелью (обязательное правило PILOT)
