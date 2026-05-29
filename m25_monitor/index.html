@@ -1,4 +1,70 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>M25 Monitor Extension</title></head>
-<body>M25 Monitor Extension – см. документацию в doc/index.html</body>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>M25 Monitor — PILOT Extension</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            line-height: 1.5;
+            color: #1e293b;
+            background: #f8fafc;
+        }
+        h1 {
+            font-size: 1.8rem;
+            border-bottom: 2px solid #3b82f6;
+            display: inline-block;
+            padding-bottom: 0.25rem;
+        }
+        .badge {
+            background: #e2e8f0;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.5rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .note {
+            background: #fef9c3;
+            border-left: 4px solid #eab308;
+            padding: 0.75rem 1rem;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>📡 M25 Monitor</h1>
+    <p>Расширение для <strong>PILOT GPS</strong> — фильтрация и отображение объектов с трекерами модели <strong>M25</strong>.</p>
+
+    <div class="note">
+        📌 <strong>Это не самостоятельное приложение.</strong><br>
+        Расширение загружается и работает <em>только внутри PILOT</em>.<br>
+        Если вы видите эту страницу, значит статические файлы расширения доступны, но для использования необходимо <strong>зарегистрировать расширение в PILOT</strong>.
+    </div>
+
+    <h2>📁 Файлы расширения</h2>
+    <ul>
+        <li><code>Module.js</code> — точка входа (класс <code>Store.m25_monitor.Module</code>)</li>
+        <li><code>view/Navigation.js</code> — левая панель с деревом M25-объектов</li>
+        <li><code>view/MainPanel.js</code> — правая панель с iframe и тулбаром</li>
+        <li><code>doc/index.html</code> — полная документация</li>
+    </ul>
+
+    <h2>🚀 Регистрация в PILOT</h2>
+    <ol>
+        <li>Разместите все файлы на статическом хостинге (Cloudflare Pages, GitHub Pages и т.д.)</li>
+        <li>Убедитесь, что <code>/Module.js</code> открывается в браузере</li>
+        <li>В админке PILOT: <strong>Администрирование → Приложения → Добавить</strong></li>
+        <li>Имя (slug): <span class="badge">m25_monitor</span> (только латиница, нижнее подчёркивание)</li>
+        <li>URL: <span class="badge">https://ваш-хост/</span> (обязательно с завершающим слешем)</li>
+        <li>Сохранить, включить для пользователя, перезагрузить PILOT (Ctrl+F5)</li>
+    </ol>
+
+    <p>📖 Подробное описание, диагностика и примеры настроек — в <a href="doc/index.html">документации</a>.</p>
+
+    <hr>
+    <p style="font-size:0.85rem; color:#475569;">M25 Monitor Extension v1.0 — совместимо с AI_SPECS.md и DEPLOY.md</p>
+</body>
 </html>
