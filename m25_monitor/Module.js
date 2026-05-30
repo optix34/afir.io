@@ -1,14 +1,13 @@
 /**
  * M25 Monitor - PILOT Extension
- * Отображает все ТС плоским списком (без папок и корня).
- * Колонки: Объект, ID устройства (vehid), Тип устройства (редактируемый, выбор из списка).
+ * Отображает все ТС плоским списком.
+ * Колонки: Объект, ID устройства (IMEI), Тип устройства (редактируемый).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    // Предопределённые типы устройств
     deviceTypeOptions: ['M25', 'M30', 'M40', 'Другое'],
 
     initModule: function() {
@@ -20,7 +19,6 @@ Ext.define('Store.m25_monitor.Module', {
             return;
         }
 
-        // Загружаем сохранённые типы (по vehid)
         me.loadSavedTypes();
 
         var navPanel = Ext.create('Ext.panel.Panel', {
@@ -31,25 +29,10 @@ Ext.define('Store.m25_monitor.Module', {
                     region: 'north',
                     xtype: 'toolbar',
                     items: [
-                        {
-                            text: 'Сохранить типы',
-                            iconCls: 'fa fa-save',
-                            handler: me.saveTypesToLocal,
-                            scope: me
-                        },
-                        {
-                            text: 'Сбросить все типы',
-                            iconCls: 'fa fa-undo',
-                            handler: me.resetAllTypes,
-                            scope: me
-                        },
+                        { text: 'Сохранить типы', iconCls: 'fa fa-save', handler: me.saveTypesToLocal, scope: me },
+                        { text: 'Сбросить все типы', iconCls: 'fa fa-undo', handler: me.resetAllTypes, scope: me },
                         '->',
-                        {
-                            text: 'Обновить список',
-                            iconCls: 'fa fa-refresh',
-                            handler: me.refreshGrid,
-                            scope: me
-                        }
+                        { text: 'Обновить список', iconCls: 'fa fa-refresh', handler: me.refreshGrid, scope: me }
                     ]
                 },
                 {
@@ -81,11 +64,7 @@ Ext.define('Store.m25_monitor.Module', {
 
     loadSavedTypes: function() {
         var stored = localStorage.getItem('m25_monitor_device_types');
-        if (stored) {
-            this.deviceTypes = Ext.decode(stored);
-        } else {
-            this.deviceTypes = {};
-        }
+        this.deviceTypes = stored ? Ext.decode(stored) : {};
     },
 
     saveTypesToLocal: function() {
@@ -105,9 +84,8 @@ Ext.define('Store.m25_monitor.Module', {
     },
 
     refreshGrid: function() {
-        var me = this;
-        if (me.gridPanel && me.gridPanel.getStore()) {
-            me.loadAllVehicles(me.gridPanel.getStore());
+        if (this.gridPanel && this.gridPanel.getStore()) {
+            this.loadAllVehicles(this.gridPanel.getStore());
         }
     },
 
@@ -115,12 +93,11 @@ Ext.define('Store.m25_monitor.Module', {
         var me = this;
 
         var store = Ext.create('Ext.data.Store', {
-            fields: ['id', 'text', 'vehid', 'deviceType'],
+            fields: ['id', 'text', 'vehid', 'imei', 'deviceType'],
             data: [],
             sorters: [{ property: 'text', direction: 'ASC' }]
         });
 
-        // Редактирование ячеек только для колонки "Тип устройства"
         var cellEditing = Ext.create('Ext.grid.plugin.CellEditing', {
             clicksToEdit: 2,
             listeners: {
@@ -148,7 +125,7 @@ Ext.define('Store.m25_monitor.Module', {
             store: store,
             columns: [
                 { text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
-                { text: 'ID устройства (Agent ID)', dataIndex: 'vehid', flex: 1, sortable: true },
+                { text: 'ID устройства', dataIndex: 'imei', flex: 1.5, sortable: true, renderer: function(v) { return v || '—'; } },
                 {
                     text: 'Тип устройства',
                     dataIndex: 'deviceType',
@@ -162,17 +139,13 @@ Ext.define('Store.m25_monitor.Module', {
                         forceSelection: false,
                         triggerAction: 'all'
                     },
-                    renderer: function(value) {
-                        return value ? Ext.String.htmlEncode(value) : '—';
-                    }
+                    renderer: function(value) { return value ? Ext.String.htmlEncode(value) : '—'; }
                 }
             ],
             plugins: [cellEditing],
             listeners: {
                 selectionchange: function(sm, selected) {
-                    if (selected && selected.length) {
-                        me.onVehicleSelected(selected[0]);
-                    }
+                    if (selected && selected.length) me.onVehicleSelected(selected[0]);
                 },
                 scope: me
             }
@@ -220,34 +193,22 @@ Ext.define('Store.m25_monitor.Module', {
     normalizeVehicleRecord: function(vehicle) {
         var vehid = vehicle.vehid || vehicle.id;
         var savedType = this.deviceTypes[vehid];
-        if (savedType !== undefined) {
-            return {
-                id: vehid,
-                text: vehicle.text || vehicle.name || 'Без имени',
-                vehid: vehid,
-                deviceType: savedType
-            };
-        } else {
-            var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
-            var displayType = (this.deviceTypeOptions.indexOf(apiType) !== -1) ? apiType : '';
-            return {
-                id: vehid,
-                text: vehicle.text || vehicle.name || 'Без имени',
-                vehid: vehid,
-                deviceType: displayType
-            };
-        }
+        var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
+        var displayType = savedType !== undefined ? savedType : (this.deviceTypeOptions.indexOf(apiType) !== -1 ? apiType : '');
+        return {
+            id: vehid,
+            text: vehicle.text || vehicle.name || 'Без имени',
+            vehid: vehid,
+            imei: vehicle.imei || '',
+            deviceType: displayType
+        };
     },
 
     createMainPanel: function() {
         var me = this;
 
         var iframe = Ext.create('Ext.Component', {
-            autoEl: {
-                tag: 'iframe',
-                src: 'about:blank',
-                style: 'width: 100%; height: 100%; border: none;'
-            },
+            autoEl: { tag: 'iframe', src: 'about:blank', style: 'width:100%;height:100%;border:none;' },
             getIframeDom: function() { return this.getEl().dom; }
         });
 
@@ -276,11 +237,7 @@ Ext.define('Store.m25_monitor.Module', {
                     }
                 },
                 '->',
-                {
-                    xtype: 'component',
-                    html: '<span style="color:#888;">Выберите устройство в левой панели</span>',
-                    itemId: 'infoText'
-                }
+                { xtype: 'component', html: '<span style="color:#888;">Выберите устройство в левой панели</span>', itemId: 'infoText' }
             ]
         });
 
