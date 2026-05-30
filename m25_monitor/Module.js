@@ -7,7 +7,6 @@ Ext.define('Store.m25_monitor.Module', {
 
     extensionName: 'm25_monitor',
 
-    // URL к CSS относительно расположения Module.js
     getCssUrl: function() {
         var scripts = document.getElementsByTagName('script');
         for (var i = 0; i < scripts.length; i++) {
@@ -23,14 +22,13 @@ Ext.define('Store.m25_monitor.Module', {
         var me = this;
         console.log('[M25] Extension initializing...');
 
-        // Защита: проверяем наличие skeleton
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
             console.error('[M25] Skeleton not ready, retry in 500ms');
             Ext.defer(me.initModule, 500, me);
             return;
         }
 
-        // Подключаем CSS, если ещё не подключён
+        // Подключаем CSS
         var cssUrl = me.getCssUrl();
         if (!document.querySelector('link[href="' + cssUrl + '"]')) {
             var link = document.createElement('link');
@@ -39,12 +37,12 @@ Ext.define('Store.m25_monitor.Module', {
             document.head.appendChild(link);
         }
 
-        // Создаём правую панель (MainPanel)
+        // Создаём правую панель
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
             id: 'm25monitor-mainpanel-' + Ext.id()
         });
 
-        // Создаём левую панель навигации
+        // Создаём левую панель (она сама является LeftBarPanel)
         var navPanel = Ext.create('Store.m25_monitor.view.Navigation', {
             title: me.getTitle(),
             iconCls: 'fa fa-microchip',
@@ -53,35 +51,18 @@ Ext.define('Store.m25_monitor.Module', {
             layout: 'fit'
         });
 
-        // Связываем панели
+        // Связываем панели (важно!)
         navPanel.setMainPanel(mainPanel);
-        navPanel.mainPanelRef = mainPanel;
-
-        // Оборачиваем в LeftBarPanel (требование PILOT)
-        var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
-            title: me.getTitle(),
-            iconCls: 'fa fa-microchip',
-            iconAlign: 'top',
-            minimized: true,
-            layout: 'fit',
-            items: [navPanel]
-        });
-
-        // Ключевая связь: левая панель указывает на правую
-        navTab.map_frame = mainPanel;
+        navPanel.map_frame = mainPanel;   // стандартное свойство для связи
 
         // Добавляем в интерфейс PILOT
-        skeleton.navigation.add(navTab);
+        skeleton.navigation.add(navPanel);
         skeleton.mapframe.add(mainPanel);
 
         console.log('[M25] Extension initialized successfully');
     },
 
     getTitle: function() {
-        // Безопасная локализация
-        if (typeof l === 'function') {
-            return l('M25 Monitor');
-        }
-        return 'M25 Monitor';
+        return (typeof l === 'function') ? l('M25 Monitor') : 'M25 Monitor';
     }
 });
