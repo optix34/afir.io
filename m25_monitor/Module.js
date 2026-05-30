@@ -1,20 +1,15 @@
 /**
  * M25 Monitor — PILOT Extension
- * Версия без левой боковой панели.
- * Добавляет кнопку в хедер PILOT, при клике открывает модальное окно
- * со списком M25-устройств (слева) и iframe с информацией (справа).
+ * Версия с левой панелью (вкладка в skeleton.navigation).
+ * Исправлены: загрузка IMEI, оборудования, датчиков, отображение iframe.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    // Храним ссылку на окно, чтобы не открывать несколько копий
-    monitorWindow: null,
-
     /**
-     * Определяет базовый URL, откуда загружается расширение
-     * (нужно для подгрузки CSS и других ресурсов).
+     * Определяет базовый URL расширения (для подгрузки CSS).
      * @return {String}
      */
     getModuleBaseUrl: function() {
@@ -25,24 +20,23 @@ Ext.define('Store.m25_monitor.Module', {
                 return src.substring(0, src.lastIndexOf('/') + 1);
             }
         }
-        // fallback – текущий путь
         return location.pathname.replace(/\/[^/]*$/, '/');
     },
 
     /**
-     * Точка входа, вызывается PILOT после загрузки расширения.
+     * Точка входа, вызывается PILOT.
      */
     initModule: function() {
         var me = this;
-        console.log('[M25] Инициализация расширения (без левой панели)...');
+        console.log('[M25] Инициализация расширения (с левой панелью)...');
 
-        // Ждём, пока skeleton полностью инициализируется
-        if (!window.skeleton || !skeleton.header) {
+        // Ждём skeleton
+        if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
             Ext.defer(me.initModule, 500, me);
             return;
         }
 
-        // Подключаем CSS расширения
+        // Подключаем CSS
         var cssUrl = me.getModuleBaseUrl() + 'view/style.css';
         if (!document.querySelector('link[href="' + cssUrl + '"]')) {
             var link = document.createElement('link');
@@ -51,71 +45,40 @@ Ext.define('Store.m25_monitor.Module', {
             document.head.appendChild(link);
         }
 
-        // Добавляем кнопку в хедер PILOT
-        if (skeleton.header && Ext.isFunction(skeleton.header.insert)) {
-            skeleton.header.insert(5, {
-                xtype: 'button',
-                cls: 'header_tool m25-monitor-header-btn',
-                iconCls: 'fa fa-microchip',
-                tooltip: (typeof l === 'function') ? l('M25 Monitor') : 'M25 Monitor',
-                handler: me.openMonitorWindow,
-                scope: me
-            });
-            console.log('[M25] Кнопка успешно добавлена в хедер PILOT');
-        } else {
-            console.error('[M25] Не удалось добавить кнопку: skeleton.header.insert недоступен');
-        }
-    },
-
-    /**
-     * Открывает модальное окно с интерфейсом M25 Monitor.
-     * Если окно уже открыто, просто показывает его.
-     */
-    openMonitorWindow: function() {
-        var me = this;
-
-        // Если окно уже существует и не уничтожено – просто показываем
-        if (me.monitorWindow && !me.monitorWindow.isDestroyed) {
-            me.monitorWindow.show();
-            me.monitorWindow.toFront();
-            return;
-        }
-
-        // Создаём правую панель (MainPanel) – будет отображать iframe и датчики
+        // Создаём правую панель (MainPanel)
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
-            region: 'center'
+            id: 'm25monitor-mainpanel-' + Ext.id()
         });
 
-        // Создаём левую панель (Navigation) – дерево объектов с фильтрацией M25
+        // Создаём левую навигацию (Navigation)
         var navPanel = Ext.create('Store.m25_monitor.view.Navigation', {
-            region: 'west',
-            width: 450,
-            split: true,
-            collapsible: true,
-            title: (typeof l === 'function') ? l('M25 Устройства') : 'M25 Устройства',
-            iconCls: 'fa fa-list'
+            title: (typeof l === 'function') ? l('M25 Monitor') : 'M25 Monitor',
+            iconCls: 'fa fa-microchip',
+            iconAlign: 'top',
+            minimized: true,
+            layout: 'fit'
         });
-        // Связываем навигацию с главной панелью
+
+        // Связываем панели
         navPanel.setMainPanel(mainPanel);
 
-        // Создаём окно с Border-раскладкой
-        me.monitorWindow = Ext.create('Ext.window.Window', {
-            title: (typeof l === 'function') ? l('M25 Monitor — устройства с трекерами M25') : 'M25 Monitor',
-            width: 1200,
-            height: 700,
-            layout: 'border',
-            modal: false,          // не блокируем остальной интерфейс
-            maximizable: true,
-            closeAction: 'destroy', // при закрытии окно уничтожается
-            items: [navPanel, mainPanel],
-            listeners: {
-                destroy: function() {
-                    me.monitorWindow = null;
-                }
-            }
+        // Оборачиваем в LeftBarPanel (требование PILOT)
+        var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
+            title: (typeof l === 'function') ? l('M25 Monitor') : 'M25 Monitor',
+            iconCls: 'fa fa-microchip',
+            iconAlign: 'top',
+            minimized: true,
+            layout: 'fit',
+            items: [navPanel]
         });
+        // Критическая связь: указываем, какая панель является главной для этой вкладки
+        navTab.map_frame = mainPanel;
 
-        me.monitorWindow.show();
-        console.log('[M25] Модальное окно открыто');
+        // Добавляем вкладку в левую панель
+        skeleton.navigation.add(navTab);
+        // Добавляем главную панель в правую область
+        skeleton.mapframe.add(mainPanel);
+
+        console.log('[M25] Вкладка успешно добавлена в левую панель');
     }
 });
