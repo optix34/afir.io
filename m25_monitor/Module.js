@@ -22,24 +22,14 @@ Ext.define('Store.m25_monitor.Module', {
             return;
         }
 
-        // Создаём левую панель с таблицей устройств
         me.createNavigationTab();
-
-        // Создаём правую панель (датчики + iframe)
         me.createMainPanel();
-
-        // Связываем панели через map_frame
         me.navTab.map_frame = me.mainPanel;
-
-        // Загружаем данные
         me.loadAllVehicles();
 
         console.log('[M25] Расширение готово');
     },
 
-    /**
-     * Левая панель: таблица со списком всех ТС
-     */
     createNavigationTab: function() {
         var me = this;
 
@@ -93,12 +83,7 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.navigation.add(this.navTab);
     },
 
-    /**
-     * Правая панель: датчики (сверху) + iframe (снизу)
-     */
     createMainPanel: function() {
-        var me = this;
-
         this.sensorStore = Ext.create('Ext.data.Store', {
             fields: ['param', 'value', 'unit'],
             data: []
@@ -139,11 +124,6 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.mapframe.add(this.mainPanel);
     },
 
-    /**
-     * Основной метод загрузки всех транспортных средств.
-     * Используем только /ax/tree.php и /ax/current_data.php.
-     * Поля equipment, imei, model извлекаем из tree.php (если они там есть).
-     */
     loadAllVehicles: function() {
         var me = this;
         if (this.vehiclesGrid) this.vehiclesGrid.setLoading(true);
@@ -156,12 +136,11 @@ Ext.define('Store.m25_monitor.Module', {
                     var treeData = Ext.decode(resp.responseText);
                     console.log('[M25] tree.php получен, тип данных:', Ext.typeOf(treeData));
                     console.log('[M25] tree.php, первые 2 элемента:', treeData.slice(0, 2));
-                    
                     if (treeData && treeData[0]) {
                         console.log('[M25] Ключи первого узла:', Object.keys(treeData[0]));
+                        console.log('[M25] Содержимое первого узла:', treeData[0]);
                     }
 
-                    // Извлекаем все ТС с полями из tree.php
                     var allVehicles = me.extractVehiclesWithDetails(treeData);
                     console.log('[M25] Найдено ТС (с деталями из tree.php):', allVehicles.length);
 
@@ -171,7 +150,6 @@ Ext.define('Store.m25_monitor.Module', {
                         return;
                     }
 
-                    // Получаем текущие данные (speed, fuel, ignition)
                     Ext.Ajax.request({
                         url: '/ax/current_data.php',
                         success: function(resp2) {
@@ -199,6 +177,12 @@ Ext.define('Store.m25_monitor.Module', {
                             });
                             me.vehiclesStore.loadData(records);
                             if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
+
+                            // Автоматически выбрать первую запись, если есть
+                            if (records.length > 0) {
+                                var firstRecord = me.vehiclesStore.getAt(0);
+                                me.vehiclesGrid.getSelectionModel().select(firstRecord);
+                            }
                         },
                         failure: function() {
                             if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
@@ -218,14 +202,9 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    /**
-     * Рекурсивно извлекает из дерева транспортные средства,
-     * пытаясь получить из узла также equipment, imei, model, agent_id.
-     */
     extractVehiclesWithDetails: function(nodes) {
         var result = [];
         Ext.Array.each(nodes, function(node) {
-            // Определяем, является ли узел транспортным средством
             var isVehicle = false;
             if (node.type === 'veh' || node.type === 'object' || node.type === 'unit') {
                 isVehicle = true;
@@ -237,9 +216,8 @@ Ext.define('Store.m25_monitor.Module', {
                 var vehid = node.vehid || node.id || node.unit_id;
                 if (vehid) {
                     result.push({
-                        vehid: vehid,
+                        vehid: String(vehid),
                         name: node.text || node.name || node.label || 'Без имени',
-                        // Извлечение equipment – пробуем несколько вариантов
                         equipment: this.extractField(node, ['equipment', 'model', 'device', 'hardware', 'devicetype', 'tracker', 'gps_type']),
                         imei: this.extractField(node, ['imei', 'serial', 'device_id', 'tracker_serial']),
                         model: this.extractField(node, ['model', 'vehicle_model', 'car_model']),
@@ -253,9 +231,6 @@ Ext.define('Store.m25_monitor.Module', {
         return result;
     },
 
-    /**
-     * Вспомогательный метод: ищет первое непустое строковое значение из списка полей
-     */
     extractField: function(node, fieldNames) {
         for (var i = 0; i < fieldNames.length; i++) {
             var val = node[fieldNames[i]];
@@ -266,9 +241,6 @@ Ext.define('Store.m25_monitor.Module', {
         return '';
     },
 
-    /**
-     * Обработчик выбора ТС в таблице
-     */
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
         var url = 'https://mega-info.su/dealer2/?vehicle_id=' + encodeURIComponent(vehid);
@@ -279,9 +251,6 @@ Ext.define('Store.m25_monitor.Module', {
         this.loadDetailedSensors(vehid);
     },
 
-    /**
-     * Загрузка детальных датчиков для выбранного ТС
-     */
     loadDetailedSensors: function(vehid) {
         var me = this;
         if (this.sensorGrid) this.sensorGrid.setLoading(true);
@@ -315,9 +284,6 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    /**
-     * Отображение датчиков в правой таблице
-     */
     displayDetailedSensors: function(vehicleData) {
         var records = [];
         if (vehicleData.name) records.push({ param: 'Название', value: vehicleData.name, unit: '' });
