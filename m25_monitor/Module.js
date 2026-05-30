@@ -1,24 +1,21 @@
 /**
  * M25 Monitor — монолитное расширение PILOT.
  * 
- * Отображает все транспортные средства клиента в таблице.
- * При выборе ТС открывается внешняя страница в новой вкладке (обход проблем с iframe).
- * 
- * Использует API PILOT:
- * - /ax/tree.php          — получение иерархии (vehid, название, оборудование, IMEI, модель)
- * - /ax/current_data.php  — текущие параметры (скорость, топливо, зажигание)
- * 
- * Левая панель: таблица с колонками: Название, UniqID, Agent ID, Тип, Модель, IMEI, Скорость, Топливо, Зажигание.
- * Правая панель: пустая (не используется).
+ * Левая панель: таблица всех ТС клиента с полями:
+ *   Название, UniqID, Agent ID, Тип, Модель, IMEI, Скорость, Топливо, Зажигание.
+ * Правая панель: iframe с внешней страницей и панель навигации (назад, вперёд, обновить, домой, открыть в новом окне, адресная строка).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
+    // Базовый URL внешнего сервиса (можно изменить)
+    externalBaseUrl: 'https://mega-info.su/dealer2/',
+
     initModule: function() {
         var me = this;
-        console.log('[M25] Инициализация расширения (открытие внешней страницы в новой вкладке)');
+        console.log('[M25] Инициализация расширения (с полной навигацией iframe)');
 
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
             Ext.defer(function() { me.initModule(); }, 500, me);
@@ -26,13 +23,14 @@ Ext.define('Store.m25_monitor.Module', {
         }
 
         me.createNavigationTab();
-        me.createDummyMainPanel();   // правая панель-пустышка
+        me.createMainPanelWithNavigation();
         me.navTab.map_frame = me.mainPanel;
         me.loadAllVehicles();
 
         console.log('[M25] Расширение готово');
     },
 
+    // Левая панель: таблица ТС
     createNavigationTab: function() {
         var me = this;
 
@@ -86,18 +84,131 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.navigation.add(this.navTab);
     },
 
-    /**
-     * Правая панель – пустая заглушка (не используется, но требуется для связи)
-     */
-    createDummyMainPanel: function() {
+    // Правая панель: тулбар навигации + iframe
+    createMainPanelWithNavigation: function() {
+        var me = this;
+
+        // iframe компонент
+        this.iframe = Ext.create('Ext.Component', {
+            autoEl: {
+                tag: 'iframe',
+                src: 'about:blank',
+                style: 'width:100%; height:100%; border:none;'
+            },
+            getIframeDom: function() {
+                var el = this.getEl();
+                return el ? el.dom : null;
+            }
+        });
+
+        // Кнопки навигации
+        var backBtn = Ext.create('Ext.button.Button', {
+            iconCls: 'fa fa-arrow-left',
+            tooltip: 'Назад',
+            handler: function() {
+                var iframeDom = me.iframe.getIframeDom();
+                if (iframeDom && iframeDom.contentWindow && iframeDom.contentWindow.history) {
+                    iframeDom.contentWindow.history.back();
+                }
+            }
+        });
+
+        var forwardBtn = Ext.create('Ext.button.Button', {
+            iconCls: 'fa fa-arrow-right',
+            tooltip: 'Вперёд',
+            handler: function() {
+                var iframeDom = me.iframe.getIframeDom();
+                if (iframeDom && iframeDom.contentWindow && iframeDom.contentWindow.history) {
+                    iframeDom.contentWindow.history.forward();
+                }
+            }
+        });
+
+        var refreshBtn = Ext.create('Ext.button.Button', {
+            iconCls: 'fa fa-sync-alt',
+            tooltip: 'Обновить',
+            handler: function() {
+                var iframeDom = me.iframe.getIframeDom();
+                if (iframeDom) {
+                    iframeDom.src = iframeDom.src;
+                }
+            }
+        });
+
+        var homeBtn = Ext.create('Ext.button.Button', {
+            iconCls: 'fa fa-home',
+            tooltip: 'На главную',
+            handler: function() {
+                var iframeDom = me.iframe.getIframeDom();
+                if (iframeDom && me.currentBaseUrl) {
+                    iframeDom.src = me.currentBaseUrl;
+                }
+            }
+        });
+
+        var openInNewWindowBtn = Ext.create('Ext.button.Button', {
+            iconCls: 'fa fa-external-link-alt',
+            tooltip: 'Открыть в новом окне',
+            handler: function() {
+                var iframeDom = me.iframe.getIframeDom();
+                if (iframeDom && iframeDom.src && iframeDom.src !== 'about:blank') {
+                    window.open(iframeDom.src, '_blank');
+                } else {
+                    Ext.Msg.alert('Информация', 'Сначала выберите транспортное средство.');
+                }
+            }
+        });
+
+        // Адресная строка для ручного ввода URL
+        this.urlField = Ext.create('Ext.form.field.Text', {
+            width: 400,
+            emptyText: 'Введите URL и нажмите Enter',
+            enableKeyEvents: true,
+            listeners: {
+                specialkey: function(field, e) {
+                    if (e.getKey() === e.ENTER) {
+                        var url = field.getValue();
+                        if (url && !url.startsWith('http')) {
+                            url = 'https://' + url;
+                        }
+                        if (url) {
+                            var iframeDom = me.iframe.getIframeDom();
+                            if (iframeDom) iframeDom.src = url;
+                            me.currentBaseUrl = url;
+                        }
+                    }
+                }
+            }
+        });
+
+        // Тулбар навигации
+        var navToolbar = Ext.create('Ext.toolbar.Toolbar', {
+            items: [
+                backBtn, forwardBtn, refreshBtn, homeBtn, openInNewWindowBtn,
+                '-', this.urlField
+            ]
+        });
+
+        // Основная панель правой области
+        this.mainPanel = Ext.create('Ext.panel.Panel', {
+            layout: 'border',
+            title: 'Внешняя страница (полная навигация)',
+            dockedItems: [navToolbar],
+            items: [this.iframe]
+        });
+        // Корректируем: dockedItems размещаются вверху, а items в центре (layout border с одним центром)
+        // Проще: панель с layout 'fit', а тулбар прикреплён сверху
         this.mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            title: 'Информация',
-            html: '<div style="padding:20px; text-align:center;">Выберите транспортное средство в левой панели.<br>Страница откроется в новой вкладке.</div>'
+            title: 'Внешняя страница',
+            tbar: navToolbar,
+            items: [this.iframe]
         });
+
         skeleton.mapframe.add(this.mainPanel);
     },
 
+    // Загрузка всех ТС (как ранее)
     loadAllVehicles: function() {
         var me = this;
         if (this.vehiclesGrid) this.vehiclesGrid.setLoading(true);
@@ -111,14 +222,13 @@ Ext.define('Store.m25_monitor.Module', {
                     console.log('[M25] tree.php получен, тип данных:', Ext.typeOf(treeData));
                     if (treeData && treeData[0]) {
                         console.log('[M25] Ключи первого узла:', Object.keys(treeData[0]));
-                        console.log('[M25] Содержимое первого узла:', treeData[0]);
                     }
 
                     var allVehicles = me.extractVehiclesWithDetails(treeData);
                     console.log('[M25] Найдено ТС:', allVehicles.length);
 
                     if (allVehicles.length === 0) {
-                        Ext.Msg.alert('Внимание', 'Не удалось найти транспортные средства. Проверьте консоль (F12).');
+                        Ext.Msg.alert('Внимание', 'Не удалось найти транспортные средства.');
                         if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
                         return;
                     }
@@ -151,7 +261,6 @@ Ext.define('Store.m25_monitor.Module', {
                             me.vehiclesStore.loadData(records);
                             if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
 
-                            // Автовыбор первой строки
                             if (records.length > 0) {
                                 var firstRecord = me.vehiclesStore.getAt(0);
                                 me.vehiclesGrid.getSelectionModel().select(firstRecord);
@@ -165,12 +274,11 @@ Ext.define('Store.m25_monitor.Module', {
                 } catch(e) {
                     console.error('[M25] Ошибка парсинга tree.php', e);
                     if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
-                    Ext.Msg.alert('Ошибка', 'Ошибка при разборе данных от PILOT');
                 }
             },
             failure: function() {
                 if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
-                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список ТС (tree.php)');
+                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список ТС');
             }
         });
     },
@@ -214,12 +322,20 @@ Ext.define('Store.m25_monitor.Module', {
         return '';
     },
 
-    /**
-     * При выборе ТС открываем внешнюю страницу в новой вкладке
-     */
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
-        var url = 'https://mega-info.su/dealer2/?vehicle_id=' + encodeURIComponent(vehid);
-        window.open(url, '_blank');
+        var url = this.externalBaseUrl + '?vehicle_id=' + encodeURIComponent(vehid);
+        if (this.iframe) {
+            var iframeDom = this.iframe.getIframeDom();
+            if (iframeDom) {
+                iframeDom.src = url;
+                // Сохраняем базовый URL для кнопки "Домой"
+                this.currentBaseUrl = url;
+                // Обновляем адресную строку
+                if (this.urlField) {
+                    this.urlField.setValue(url);
+                }
+            }
+        }
     }
 });
