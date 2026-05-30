@@ -1,21 +1,21 @@
 /**
  * M25 Monitor — монолитное расширение PILOT.
  * 
- * Левая панель: таблица всех ТС клиента с полями:
- *   Название, UniqID, Agent ID, Тип, Модель, IMEI, Скорость, Топливо, Зажигание.
- * Правая панель: iframe с внешней страницей https://mega-info.su/ и панель навигации (назад, вперёд, обновить, домой, открыть в новом окне, адресная строка).
+ * Левая панель: таблица всех ТС клиента.
+ * Правая панель: iframe с внешней страницей https://mega-info.su/
+ * Вся навигация (вперёд, назад, обновление, переход по ссылкам внутри iframe)
+ * происходит внутри этого же iframe, без открытия новых окон.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    // Базовый URL внешнего сервиса (изменён на главную страницу mega-info.su)
     externalBaseUrl: 'https://mega-info.su/',
 
     initModule: function() {
         var me = this;
-        console.log('[M25] Инициализация расширения (полная навигация iframe, главная страница mega-info.su)');
+        console.log('[M25] Инициализация расширения (вся навигация внутри iframe)');
 
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
             Ext.defer(function() { me.initModule(); }, 500, me);
@@ -84,11 +84,10 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.navigation.add(this.navTab);
     },
 
-    // Правая панель: тулбар навигации + iframe
+    // Правая панель: тулбар + iframe (без кнопки "Открыть в новом окне")
     createMainPanelWithNavigation: function() {
         var me = this;
 
-        // iframe компонент
         this.iframe = Ext.create('Ext.Component', {
             autoEl: {
                 tag: 'iframe',
@@ -101,7 +100,7 @@ Ext.define('Store.m25_monitor.Module', {
             }
         });
 
-        // Кнопки навигации
+        // Кнопки навигации (только внутри iframe)
         var backBtn = Ext.create('Ext.button.Button', {
             iconCls: 'fa fa-arrow-left',
             tooltip: 'Назад',
@@ -147,20 +146,7 @@ Ext.define('Store.m25_monitor.Module', {
             }
         });
 
-        var openInNewWindowBtn = Ext.create('Ext.button.Button', {
-            iconCls: 'fa fa-external-link-alt',
-            tooltip: 'Открыть в новом окне',
-            handler: function() {
-                var iframeDom = me.iframe.getIframeDom();
-                if (iframeDom && iframeDom.src && iframeDom.src !== 'about:blank') {
-                    window.open(iframeDom.src, '_blank');
-                } else {
-                    Ext.Msg.alert('Информация', 'Сначала выберите транспортное средство или перейдите по ссылке.');
-                }
-            }
-        });
-
-        // Адресная строка для ручного ввода URL
+        // Адресная строка (опционально, но оставим для удобства)
         this.urlField = Ext.create('Ext.form.field.Text', {
             width: 400,
             emptyText: 'Введите URL и нажмите Enter',
@@ -181,15 +167,13 @@ Ext.define('Store.m25_monitor.Module', {
             }
         });
 
-        // Тулбар навигации
         var navToolbar = Ext.create('Ext.toolbar.Toolbar', {
             items: [
-                backBtn, forwardBtn, refreshBtn, homeBtn, openInNewWindowBtn,
+                backBtn, forwardBtn, refreshBtn, homeBtn,
                 '-', this.urlField
             ]
         });
 
-        // Основная панель правой области
         this.mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
             title: 'Внешняя страница (mega-info.su)',
@@ -200,7 +184,6 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.mapframe.add(this.mainPanel);
     },
 
-    // Загрузка всех ТС (как ранее)
     loadAllVehicles: function() {
         var me = this;
         if (this.vehiclesGrid) this.vehiclesGrid.setLoading(true);
@@ -211,11 +194,6 @@ Ext.define('Store.m25_monitor.Module', {
             success: function(resp) {
                 try {
                     var treeData = Ext.decode(resp.responseText);
-                    console.log('[M25] tree.php получен, тип данных:', Ext.typeOf(treeData));
-                    if (treeData && treeData[0]) {
-                        console.log('[M25] Ключи первого узла:', Object.keys(treeData[0]));
-                    }
-
                     var allVehicles = me.extractVehiclesWithDetails(treeData);
                     console.log('[M25] Найдено ТС:', allVehicles.length);
 
@@ -316,13 +294,11 @@ Ext.define('Store.m25_monitor.Module', {
 
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
-        // Формируем URL для главной страницы mega-info.su с параметром vehicle_id
         var url = this.externalBaseUrl + '?vehicle_id=' + encodeURIComponent(vehid);
         if (this.iframe) {
             var iframeDom = this.iframe.getIframeDom();
             if (iframeDom) {
                 iframeDom.src = url;
-                // Обновляем адресную строку
                 if (this.urlField) {
                     this.urlField.setValue(url);
                 }
