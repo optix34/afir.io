@@ -1,6 +1,5 @@
 /**
- * Navigation.js — левая панель навигации (дерево) для M25 Monitor.
- * Загружает данные из /ax/tree.php, фильтрует объекты с оборудованием M25.
+ * Navigation.js — левая панель с деревом объектов, фильтрованных по M25.
  */
 Ext.define('Store.m25_monitor.view.Navigation', {
     extend: 'Pilot.utils.LeftBarPanel',
@@ -12,72 +11,24 @@ Ext.define('Store.m25_monitor.view.Navigation', {
     minimized: true,
     layout: 'fit',
 
-    mainPanel: null,        // будет установлен из Module.js
+    mainPanel: null,
     treePanel: null,
     filterField: null,
 
     initComponent: function() {
-        var me = this;
-        me.items = [me.createTreePanel()];
-        me.dockedItems = [me.createToolbar()];
-        me.callParent(arguments);
-        me.loadData();
+        this.items = [this.createTreePanel()];
+        this.dockedItems = [this.createToolbar()];
+        this.callParent(arguments);
+        this.loadData();
     },
 
+    // Верхний тулбар с кнопками и поиском
     createToolbar: function() {
         var me = this;
-        return {
-            xtype: 'toolbar',
-            dock: 'top',
-            items: [
-                {
-                    iconCls: 'fa fa-search',
-                    tooltip: l('Поиск'),
-                    handler: function() {
-                        me.filterField.focus();
-                    }
-                },
-                '->',
-                {
-                    text: l('Развернуть всё'),
-                    iconCls: 'fa fa-expand',
-                    handler: function() {
-                        me.treePanel.expandAll();
-                    }
-                },
-                {
-                    text: l('Свернуть всё'),
-                    iconCls: 'fa fa-compress',
-                    handler: function() {
-                        me.treePanel.collapseAll();
-                    }
-                },
-                {
-                    iconCls: 'fa fa-sync-alt',
-                    tooltip: l('Обновить список'),
-                    handler: function() {
-                        me.loadData();
-                    }
-                }
-            ]
-        };
-    },
-
-    createTreePanel: function() {
-        var me = this;
-
-        this.treeStore = Ext.create('Ext.data.TreeStore', {
-            root: {
-                text: l('M25 Devices'),
-                expanded: true,
-                children: []
-            }
-        });
-
-        // Поле фильтра
         this.filterField = Ext.create('Ext.form.field.Text', {
-            emptyText: l('Поиск...'),
+            emptyText: (typeof l === 'function') ? l('Поиск...') : 'Поиск...',
             width: 200,
+            enableKeyEvents: true,
             listeners: {
                 change: {
                     buffer: 300,
@@ -88,32 +39,65 @@ Ext.define('Store.m25_monitor.view.Navigation', {
             }
         });
 
+        return {
+            xtype: 'toolbar',
+            dock: 'top',
+            items: [
+                {
+                    text: (typeof l === 'function') ? l('Обновить') : 'Обновить',
+                    iconCls: 'fa fa-sync-alt',
+                    handler: function() { me.loadData(); },
+                    scope: me
+                },
+                {
+                    text: (typeof l === 'function') ? l('Развернуть всё') : 'Развернуть всё',
+                    iconCls: 'fa fa-expand',
+                    handler: function() { me.treePanel.expandAll(); },
+                    scope: me
+                },
+                {
+                    text: (typeof l === 'function') ? l('Свернуть всё') : 'Свернуть всё',
+                    iconCls: 'fa fa-compress',
+                    handler: function() { me.treePanel.collapseAll(); },
+                    scope: me
+                },
+                '->',
+                this.filterField
+            ]
+        };
+    },
+
+    createTreePanel: function() {
+        var me = this;
+        this.treeStore = Ext.create('Ext.data.TreeStore', {
+            root: {
+                text: (typeof l === 'function') ? l('M25 Устройства') : 'M25 Устройства',
+                expanded: true,
+                children: []
+            }
+        });
+
         var tree = Ext.create('Ext.tree.Panel', {
             store: this.treeStore,
             rootVisible: true,
             useArrows: true,
-            dockedItems: [{
-                xtype: 'toolbar',
-                dock: 'top',
-                items: [this.filterField]
-            }],
             columns: [
                 {
                     xtype: 'treecolumn',
-                    text: l('Объект'),
+                    text: (typeof l === 'function') ? l('Объект') : 'Объект',
                     dataIndex: 'text',
                     flex: 2,
                     sortable: true
                 },
                 {
-                    text: l('IMEI'),
+                    text: 'IMEI',
                     dataIndex: 'imei',
                     flex: 1,
                     sortable: true,
                     renderer: function(v) { return v || '—'; }
                 },
                 {
-                    text: l('Оборудование'),
+                    text: (typeof l === 'function') ? l('Оборудование') : 'Оборудование',
                     dataIndex: 'equipment',
                     flex: 1.5,
                     sortable: true,
@@ -129,11 +113,6 @@ Ext.define('Store.m25_monitor.view.Navigation', {
                         }
                     }
                 },
-                itemdblclick: function(view, record) {
-                    if (record.get('type') === 'veh') {
-                        me.onVehicleSelect(record);
-                    }
-                },
                 scope: me
             }
         });
@@ -144,7 +123,7 @@ Ext.define('Store.m25_monitor.view.Navigation', {
 
     loadData: function() {
         var me = this;
-        me.treePanel.setLoading(l('Загрузка...'));
+        if (this.treePanel) this.treePanel.setLoading(true);
 
         Ext.Ajax.request({
             url: '/ax/tree.php',
@@ -153,40 +132,48 @@ Ext.define('Store.m25_monitor.view.Navigation', {
                 try {
                     var data = Ext.decode(response.responseText);
                     if (!data || !data.length) {
-                        throw new Error('Empty response');
+                        throw new Error('Пустой ответ от /ax/tree.php');
                     }
+                    // Диагностика: вывести первые 2 узла в консоль
+                    console.log('[M25] Пример данных от PILOT:', data.slice(0, 2));
+                    
                     var filtered = me.filterM25Nodes(data);
                     me.treeStore.setRoot({
-                        text: l('M25 Devices'),
+                        text: (typeof l === 'function') ? l('M25 Устройства') : 'M25 Устройства',
                         expanded: true,
                         children: filtered
                     });
-                    // Восстанавливаем сохранённые развёрнутые узлы
-                    me.restoreExpandedState();
+                    
                     if (filtered.length === 0) {
-                        Ext.Msg.alert(l('Информация'), l('Объекты с оборудованием M25 не найдены.'));
+                        Ext.Msg.alert(
+                            (typeof l === 'function') ? l('Информация') : 'Информация',
+                            (typeof l === 'function') ? l('Объекты с оборудованием M25 не найдены. Проверьте консоль (F12).') : 'Объекты с M25 не найдены'
+                        );
                     }
                 } catch (e) {
-                    console.error('[M25] Parse error', e);
-                    Ext.Msg.alert(l('Ошибка'), l('Некорректный ответ сервера.'));
+                    console.error('[M25] Ошибка парсинга:', e);
+                    Ext.Msg.alert('Ошибка', 'Не удалось разобрать ответ сервера');
                 }
-                me.treePanel.setLoading(false);
+                if (me.treePanel) me.treePanel.setLoading(false);
             },
             failure: function(response) {
-                console.error('[M25] AJAX error', response.status);
-                Ext.Msg.alert(l('Ошибка'), l('Не удалось загрузить данные. Статус: ') + response.status);
-                me.treePanel.setLoading(false);
+                console.error('[M25] AJAX ошибка:', response.status);
+                Ext.Msg.alert('Ошибка', 'Не удалось загрузить данные. Статус: ' + response.status);
+                if (me.treePanel) me.treePanel.setLoading(false);
             }
         });
     },
 
+    // Рекурсивная фильтрация: оставляем только группы, содержащие M25-ТС, и сами ТС
     filterM25Nodes: function(nodes) {
+        var me = this;
         var result = [];
         Ext.Array.each(nodes, function(node) {
             var isVehicle = (node.type === 'veh' || node.vehid);
+            // ИЗВЛЕКАЕМ ОБОРУДОВАНИЕ (пытаемся разные поля)
             var equipment = me.extractEquipment(node);
             var hasM25 = equipment && equipment.toLowerCase().indexOf('m25') !== -1;
-
+            
             if (isVehicle && hasM25) {
                 result.push(me.normalizeVehicle(node, equipment));
             } else if (node.children && node.children.length) {
@@ -199,15 +186,35 @@ Ext.define('Store.m25_monitor.view.Navigation', {
         return result;
     },
 
+    // Извлечение модели трекера из разных возможных полей
     extractEquipment: function(node) {
-        var candidates = ['equipment', 'model', 'device', 'hardware', 'devicetype', 'tracker'];
+        // Приоритетные поля (наиболее часто встречающиеся в PILOT)
+        var candidates = ['equipment', 'model', 'device', 'hardware', 'devicetype', 'tracker', 'gps_type', 'module'];
         for (var i = 0; i < candidates.length; i++) {
             var val = node[candidates[i]];
-            if (val && typeof val === 'string') return val;
+            if (val && typeof val === 'string' && val.trim() !== '') {
+                return val;
+            }
         }
+        // Дополнительный поиск по ключам, содержащим "equip", "device", "model"
         for (var key in node) {
-            if (typeof node[key] === 'string' && (key.toLowerCase().indexOf('equip') !== -1 || key.toLowerCase().indexOf('device') !== -1)) {
-                return node[key];
+            if (typeof node[key] === 'string' && node[key].trim() !== '') {
+                var lowerKey = key.toLowerCase();
+                if (lowerKey.indexOf('equip') !== -1 || lowerKey.indexOf('device') !== -1 || lowerKey.indexOf('model') !== -1) {
+                    return node[key];
+                }
+            }
+        }
+        return '';
+    },
+
+    // Извлечение IMEI (поле может называться imei, serial, device_id)
+    extractImei: function(node) {
+        var imeiCandidates = ['imei', 'serial', 'device_id', 'tracker_serial'];
+        for (var i = 0; i < imeiCandidates.length; i++) {
+            var val = node[imeiCandidates[i]];
+            if (val && typeof val === 'string' && val.trim() !== '') {
+                return val;
             }
         }
         return '';
@@ -215,9 +222,9 @@ Ext.define('Store.m25_monitor.view.Navigation', {
 
     normalizeVehicle: function(vehNode, equipment) {
         return {
-            text: vehNode.text || vehNode.name || l('Без имени'),
+            text: vehNode.text || vehNode.name || (typeof l === 'function' ? l('Без имени') : 'Без имени'),
             vehid: vehNode.vehid,
-            imei: vehNode.imei || '',
+            imei: this.extractImei(vehNode),
             equipment: equipment,
             type: 'veh',
             leaf: true,
@@ -227,7 +234,7 @@ Ext.define('Store.m25_monitor.view.Navigation', {
 
     normalizeGroup: function(groupNode, children) {
         return {
-            text: groupNode.text || groupNode.name || l('Папка'),
+            text: groupNode.text || groupNode.name || (typeof l === 'function' ? l('Папка') : 'Папка'),
             type: 'group',
             leaf: false,
             expanded: false,
@@ -237,62 +244,40 @@ Ext.define('Store.m25_monitor.view.Navigation', {
 
     onVehicleSelect: function(record) {
         if (!this.mainPanel) {
-            console.warn('[M25] No mainPanel reference');
+            console.warn('[M25] MainPanel не задана');
             return;
         }
         var vehid = record.get('vehid');
         var vehicleName = record.get('text');
+        var imei = record.get('imei');
+        var equipment = record.get('equipment');
+        
+        // Формируем URL для внешней страницы
         var baseUrl = 'https://mega-info.su/dealer2/';
         var url = baseUrl + (baseUrl.indexOf('?') === -1 ? '?' : '&') + 'vehicle_id=' + encodeURIComponent(vehid);
-
-        if (Ext.isFunction(this.mainPanel.loadUrl)) {
-            this.mainPanel.loadUrl(url, vehicleName);
+        
+        // Передаём в MainPanel не только URL, но и данные ТС для отображения датчиков
+        if (Ext.isFunction(this.mainPanel.loadVehicleData)) {
+            this.mainPanel.loadVehicleData(vehid, vehicleName, imei, equipment, url);
         } else {
             // fallback
-            var iframeDom = this.mainPanel.iframe && this.mainPanel.iframe.getIframeDom();
-            if (iframeDom) iframeDom.src = url;
+            if (this.mainPanel.loadUrl) this.mainPanel.loadUrl(url, vehicleName);
         }
-        // Сохраняем последний выбранный ID
-        localStorage.setItem('m25_last_vehid', vehid);
     },
 
     setMainPanel: function(panel) {
         this.mainPanel = panel;
     },
 
-    // Фильтрация дерева по тексту
+    // Фильтрация дерева по введённому тексту
     filterTree: function(value) {
-        var me = this;
         if (!value) {
-            me.treePanel.clearFilter();
+            this.treePanel.clearFilter();
             return;
         }
-        me.treePanel.filterBy(function(node) {
+        this.treePanel.filterBy(function(node) {
             var text = node.get('text') || '';
             return text.toLowerCase().indexOf(value.toLowerCase()) !== -1;
         });
-    },
-
-    // Сохранение/восстановление развёрнутых узлов (опционально)
-    saveExpandedState: function() {
-        var expanded = [];
-        this.treePanel.getRootNode().cascadeBy(function(node) {
-            if (node.isExpanded() && node.getDepth() > 0) {
-                expanded.push(node.getPath('id'));
-            }
-        });
-        localStorage.setItem('m25_expanded_nodes', Ext.encode(expanded));
-    },
-
-    restoreExpandedState: function() {
-        var saved = localStorage.getItem('m25_expanded_nodes');
-        if (!saved) return;
-        var paths = Ext.decode(saved);
-        Ext.Array.each(paths, function(path) {
-            var node = this.treePanel.getRootNode().findChildBy(function(n) {
-                return n.getPath('id') === path;
-            });
-            if (node) node.expand();
-        }, this);
     }
 });
