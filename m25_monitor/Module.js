@@ -1,79 +1,67 @@
 /**
- * M25 Monitor — полностью монолитное расширение.
- * Всё в одном файле: кнопка в header, окно, таблица ТС, датчики, iframe.
+ * M25 Monitor — монолитное расширение PILOT.
+ * Добавляет вкладку в левую навигацию и полноценную страницу с таблицей ТС.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
-    panelTitle: 'M25 Monitor — все объекты клиента',
 
+    /**
+     * Точка входа, вызывается PILOT после загрузки расширения
+     */
     initModule: function() {
         var me = this;
-        console.log('[M25] Монолитная инициализация');
+        console.log('[M25] Инициализация монолитного расширения');
 
-        if (!window.skeleton || !skeleton.header) {
-            Ext.defer(function() { me.initModule(); }, 500);
+        // Проверяем готовность skeleton
+        if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
+            Ext.defer(function() { me.initModule(); }, 500, me);
             return;
         }
 
-        // Подключаем CSS (если есть, ошибка 404 не критична)
-        var cssUrl = '/store/m25_monitor/view/style.css';
-        if (!document.querySelector('link[href="' + cssUrl + '"]')) {
-            var link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = cssUrl;
-            link.onerror = function() { /* игнорируем */ };
-            document.head.appendChild(link);
-        }
+        // Создаём левую вкладку (навигацию)
+        me.createNavigationTab();
 
-        // Добавляем кнопку в header PILOT
-        skeleton.header.insert(0, {
-            xtype: 'button',
-            text: me.panelTitle,
-            iconCls: 'fa fa-microchip',
-            cls: 'm25-header-btn',
-            handler: function() { me.showWindow(); },
-            scope: me
-        });
+        // Создаём правую панель (основной контент)
+        me.createMainPanel();
 
-        console.log('[M25] Кнопка добавлена в header');
+        console.log('[M25] Расширение готово, вкладка добавлена в левое меню');
     },
 
-    // --- Создание и показ главного окна ---
-    showWindow: function() {
-        if (this.window && !this.window.isDestroyed) {
-            this.window.show();
-            return;
-        }
+    /**
+     * Создаёт вкладку в левой навигации PILOT
+     */
+    createNavigationTab: function() {
+        var me = this;
 
-        this.window = Ext.create('Ext.window.Window', {
-            title: this.panelTitle,
-            width: 1200,
-            height: 700,
-            layout: 'border',
-            modal: true,
-            draggable: true,
-            resizable: true,
-            closable: true,
-            items: [this.createVehiclesGrid(), this.createRightPanel()],
-            dockedItems: [{
-                xtype: 'toolbar',
-                dock: 'top',
-                items: [{
-                    text: 'Обновить',
-                    iconCls: 'fa fa-sync-alt',
-                    handler: this.refreshAll,
-                    scope: this
-                }]
+        // Создаём саму вкладку с заголовком и иконкой
+        this.navTab = Ext.create('Pilot.utils.LeftBarPanel', {
+            title: 'M25 Monitor',                       // ← название вкладки
+            iconCls: 'fa fa-microchip',
+            iconAlign: 'top',
+            minimized: true,
+            layout: 'fit',
+            items: [{
+                xtype: 'component',
+                html: '<div style="padding:10px;text-align:center;">Выберите M25 Monitor в правой панели</div>'
             }]
         });
-        this.window.show();
-        this.loadAllVehicles();
+
+        // Привязываем правую панель к вкладке (через map_frame)
+        this.navTab.map_frame = this.mainPanel;
+
+        // Добавляем вкладку в левое меню
+        skeleton.navigation.add(this.navTab);
     },
 
-    // --- Левая часть: таблица всех ТС ---
-    createVehiclesGrid: function() {
+    /**
+     * Создаёт основную панель (правую область) со всем функционалом
+     */
+    createMainPanel: function() {
+        var me = this;
+
+        // --- Левая часть: таблица всех ТС ---
         this.vehiclesStore = Ext.create('Ext.data.Store', {
             fields: ['vehid', 'name', 'imei', 'equipment', 'speed', 'fuel', 'ignition'],
             data: [],
@@ -97,23 +85,31 @@ Ext.define('Store.m25_monitor.Module', {
             listeners: {
                 selectionchange: function(sm, selected) {
                     if (selected && selected.length) {
-                        this.onVehicleSelect(selected[0]);
+                        me.onVehicleSelect(selected[0]);
                     }
                 },
-                scope: this
-            }
+                scope: me
+            },
+            dockedItems: [{
+                xtype: 'toolbar',
+                dock: 'top',
+                items: [{
+                    text: 'Обновить список',
+                    iconCls: 'fa fa-sync-alt',
+                    handler: function() { me.loadAllVehicles(); },
+                    scope: me
+                }]
+            }]
         });
-        return this.vehiclesGrid;
-    },
 
-    // --- Правая панель: датчики (сверху) + iframe (снизу) ---
-    createRightPanel: function() {
+        // --- Правая часть: датчики (сверху) + iframe (снизу) ---
         this.sensorStore = Ext.create('Ext.data.Store', {
             fields: ['param', 'value', 'unit'],
             data: []
         });
+
         this.sensorGrid = Ext.create('Ext.grid.Panel', {
-            title: 'Датчики и параметры',
+            title: 'Датчики и параметры (выберите ТС)',
             height: 250,
             collapsible: true,
             collapsed: false,
@@ -123,7 +119,7 @@ Ext.define('Store.m25_monitor.Module', {
                 { text: 'Значение', dataIndex: 'value', flex: 2 },
                 { text: 'Ед. изм.', dataIndex: 'unit', flex: 1 }
             ],
-            viewConfig: { emptyText: 'Выберите ТС из списка слева' }
+            viewConfig: { emptyText: 'Выберите транспортное средство из списка слева' }
         });
 
         this.iframe = Ext.create('Ext.Component', {
@@ -138,14 +134,29 @@ Ext.define('Store.m25_monitor.Module', {
             }
         });
 
-        return Ext.create('Ext.panel.Panel', {
+        var rightPanel = Ext.create('Ext.panel.Panel', {
             region: 'center',
             layout: 'border',
             items: [this.sensorGrid, this.iframe]
         });
+
+        // Главная панель с border-раскладкой
+        this.mainPanel = Ext.create('Ext.panel.Panel', {
+            layout: 'border',
+            title: 'M25 Monitor — мониторинг транспорта',
+            items: [this.vehiclesGrid, rightPanel]
+        });
+
+        // Добавляем панель в mapframe PILOT (правая область)
+        skeleton.mapframe.add(this.mainPanel);
+
+        // Загружаем список ТС при создании
+        this.loadAllVehicles();
     },
 
-    // --- Загрузка всех ТС из PILOT ---
+    /**
+     * Загрузка всех ТС из PILOT (tree.php + current_data.php)
+     */
     loadAllVehicles: function() {
         var me = this;
         if (this.vehiclesGrid) this.vehiclesGrid.setLoading(true);
@@ -157,6 +168,7 @@ Ext.define('Store.m25_monitor.Module', {
                 try {
                     var treeData = Ext.decode(resp.responseText);
                     var allVehicles = me.extractAllVehicles(treeData);
+
                     Ext.Ajax.request({
                         url: '/ax/current_data.php',
                         success: function(resp2) {
@@ -166,6 +178,7 @@ Ext.define('Store.m25_monitor.Module', {
                             Ext.Array.each(items, function(item) {
                                 if (item.vehid) currentMap[item.vehid] = item;
                             });
+
                             var records = [];
                             Ext.Array.each(allVehicles, function(veh) {
                                 var cur = currentMap[veh.vehid] || {};
@@ -187,7 +200,7 @@ Ext.define('Store.m25_monitor.Module', {
                         }
                     });
                 } catch(e) {
-                    console.error(e);
+                    console.error('[M25] Ошибка парсинга tree.php', e);
                     if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
                 }
             },
@@ -197,12 +210,15 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    // --- Рекурсивный сбор всех ТС из дерева PILOT ---
+    /**
+     * Рекурсивный сбор всех транспортных средств из дерева PILOT
+     */
     extractAllVehicles: function(nodes) {
         var me = this;
         var result = [];
         Ext.Array.each(nodes, function(node) {
-            if (node.type === 'veh' || node.vehid) {
+            var isVehicle = (node.type === 'veh' || node.vehid);
+            if (isVehicle) {
                 result.push({
                     vehid: node.vehid,
                     name: node.text || node.name || 'Без имени',
@@ -216,6 +232,7 @@ Ext.define('Store.m25_monitor.Module', {
         return result;
     },
 
+    // Вспомогательные методы извлечения данных из узла PILOT
     extractEquipment: function(node) {
         var candidates = ['equipment', 'model', 'device', 'hardware', 'devicetype', 'tracker', 'gps_type', 'module'];
         for (var i = 0; i < candidates.length; i++) {
@@ -224,8 +241,10 @@ Ext.define('Store.m25_monitor.Module', {
         }
         for (var key in node) {
             if (typeof node[key] === 'string' && node[key].trim()) {
-                var k = key.toLowerCase();
-                if (k.indexOf('equip') !== -1 || k.indexOf('device') !== -1 || k.indexOf('model') !== -1) return node[key];
+                var lower = key.toLowerCase();
+                if (lower.indexOf('equip') !== -1 || lower.indexOf('device') !== -1 || lower.indexOf('model') !== -1) {
+                    return node[key];
+                }
             }
         }
         return '';
@@ -240,7 +259,9 @@ Ext.define('Store.m25_monitor.Module', {
         return '';
     },
 
-    // --- Выбор ТС: загружаем iframe и детальные датчики ---
+    /**
+     * Обработчик выбора ТС в таблице
+     */
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
         var url = 'https://mega-info.su/dealer2/?vehicle_id=' + encodeURIComponent(vehid);
@@ -251,6 +272,9 @@ Ext.define('Store.m25_monitor.Module', {
         this.loadDetailedSensors(vehid);
     },
 
+    /**
+     * Загрузка детальных датчиков для выбранного ТС
+     */
     loadDetailedSensors: function(vehid) {
         var me = this;
         if (this.sensorGrid) this.sensorGrid.setLoading(true);
@@ -272,7 +296,9 @@ Ext.define('Store.m25_monitor.Module', {
                     } else {
                         me.sensorStore.loadData([{ param: 'Статус', value: 'Нет данных', unit: '' }]);
                     }
-                } catch(e) { console.error(e); }
+                } catch(e) {
+                    console.error('[M25] Ошибка датчиков', e);
+                }
                 if (me.sensorGrid) me.sensorGrid.setLoading(false);
             },
             failure: function() {
@@ -282,6 +308,9 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
+    /**
+     * Отображает полученные датчики в таблице
+     */
     displayDetailedSensors: function(vehicleData) {
         var records = [];
         if (vehicleData.name) records.push({ param: 'Название', value: vehicleData.name, unit: '' });
@@ -304,15 +333,10 @@ Ext.define('Store.m25_monitor.Module', {
                 });
             });
         }
-        if (records.length === 0) records.push({ param: 'Информация', value: 'Нет дополнительных датчиков', unit: '' });
-        this.sensorStore.loadData(records);
-    },
 
-    refreshAll: function() {
-        this.loadAllVehicles();
-        if (this.vehiclesGrid && this.vehiclesGrid.getSelectionModel().getSelection().length) {
-            var selected = this.vehiclesGrid.getSelectionModel().getSelection()[0];
-            if (selected) this.onVehicleSelect(selected);
+        if (records.length === 0) {
+            records.push({ param: 'Информация', value: 'Нет дополнительных датчиков', unit: '' });
         }
+        this.sensorStore.loadData(records);
     }
 });
