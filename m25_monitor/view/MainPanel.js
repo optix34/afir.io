@@ -1,44 +1,82 @@
 /**
- * MainPanel.js — правая панель с iframe и информацией о датчиках.
+ * MainPanel.js — правая панель с выпадающим списком ТС, датчиками и iframe.
  */
 Ext.define('Store.m25_monitor.view.MainPanel', {
     extend: 'Ext.panel.Panel',
     alias: 'widget.m25monitor-mainpanel',
 
-    layout: 'border',   // разделяем на верхнюю (инфо) и центральную (iframe)
-    title: (typeof l === 'function') ? l('M25 Monitor — данные объекта') : 'M25 Monitor — данные объекта',
+    layout: 'border',
+    title: (typeof l === 'function') ? l('M25 Monitor — выбор ТС') : 'M25 Monitor',
 
-    currentIframeSrc: 'about:blank',
+    currentVehicleId: null,
+    currentVehicleName: null,
     iframe: null,
     sensorGrid: null,
+    vehicleCombo: null,
 
     initComponent: function() {
-        // Создаём верхнюю панель с данными о ТС и датчиках
-        this.createSensorPanel();
-        // Создаём iframe
-        this.createIframe();
-        
+        this.createTopPanel();   // панель с комбобоксом и датчиками
+        this.createIframe();     // iframe в центре
+
         this.items = [
-            this.sensorPanel,
-            this.iframe
+            this.topPanel,   // region: north
+            this.iframe      // region: center
         ];
         this.callParent(arguments);
     },
 
-    createSensorPanel: function() {
-        // Панель с краткой информацией о ТС
-        this.infoPanel = Ext.create('Ext.panel.Panel', {
-            region: 'north',
-            height: 250,
-            collapsible: true,
-            title: (typeof l === 'function') ? l('Данные транспортного средства') : 'Данные ТС',
-            layout: 'fit',
-            items: [this.createSensorGrid()]
-        });
-        this.sensorPanel = this.infoPanel;
-    },
+    // Верхняя область: выбор ТС + таблица датчиков
+    createTopPanel: function() {
+        var me = this;
 
-    createSensorGrid: function() {
+        // Создаём комбобокс для выбора ТС
+        this.vehicleCombo = Ext.create('Ext.form.field.ComboBox', {
+            fieldLabel: (typeof l === 'function') ? l('Транспортное средство') : 'ТС',
+            labelWidth: 120,
+            width: 400,
+            queryMode: 'local',
+            displayField: 'text',
+            valueField: 'vehid',
+            editable: true,
+            forceSelection: false,
+            triggerAction: 'all',
+            emptyText: (typeof l === 'function') ? l('Выберите или начните вводить...') : 'Выберите...',
+            listeners: {
+                select: function(combo, records) {
+                    if (records && records.length) {
+                        var record = records[0];
+                        me.onVehicleSelected(record);
+                    }
+                },
+                scope: me
+            }
+        });
+
+        // Кнопка обновления списка ТС
+        var refreshBtn = Ext.create('Ext.button.Button', {
+            text: (typeof l === 'function') ? l('Обновить список') : 'Обновить',
+            iconCls: 'fa fa-sync-alt',
+            handler: function() {
+                me.loadVehiclesList();
+            },
+            scope: me
+        });
+
+        // Панель инструментов с комбобоксом и кнопкой
+        var toolbar = Ext.create('Ext.toolbar.Toolbar', {
+            items: [
+                this.vehicleCombo,
+                refreshBtn,
+                '->',
+                {
+                    xtype: 'component',
+                    html: '<span class="m25-monitor-info">' + ((typeof l === 'function') ? l('Выберите ТС для просмотра') : 'Выберите ТС') + '</span>',
+                    itemId: 'infoText'
+                }
+            ]
+        });
+
+        // Таблица датчиков
         this.sensorStore = Ext.create('Ext.data.Store', {
             fields: ['param', 'value', 'unit'],
             data: []
@@ -50,13 +88,16 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                 { text: (typeof l === 'function') ? l('Значение') : 'Значение', dataIndex: 'value', flex: 2 },
                 { text: (typeof l === 'function') ? l('Ед. изм.') : 'Ед. изм.', dataIndex: 'unit', flex: 1 }
             ],
-            viewConfig: { emptyText: (typeof l === 'function') ? l('Выберите ТС для отображения датчиков') : 'Выберите ТС' },
+            height: 200,
+            title: (typeof l === 'function') ? l('Датчики и параметры') : 'Данные ТС',
+            collapsible: true,
+            collapsed: false,
             dockedItems: [{
                 xtype: 'toolbar',
                 dock: 'top',
                 items: [
                     {
-                        text: (typeof l === 'function') ? l('Обновить датчики') : 'Обновить датчики',
+                        text: (typeof l === 'function') ? l('Обновить датчики') : 'Обновить',
                         iconCls: 'fa fa-sync',
                         handler: this.refreshSensors,
                         scope: this
@@ -64,97 +105,172 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                 ]
             }]
         });
-        return this.sensorGrid;
+
+        this.topPanel = Ext.create('Ext.panel.Panel', {
+            region: 'north',
+            layout: 'vbox',
+            border: false,
+            items: [toolbar, this.sensorGrid]
+        });
+
+        // Загружаем список ТС сразу после создания
+        this.loadVehiclesList();
     },
 
-    createIframe: function() {
+    // Загрузка списка ТС из PILOT с фильтром M25
+    loadVehiclesList: function() {
         var me = this;
-        this.iframe = Ext.create('Ext.Component', {
-            region: 'center',
-            autoEl: {
-                tag: 'iframe',
-                src: this.currentIframeSrc,
-                style: 'width: 100%; height: 100%; border: none;'
+        this.vehicleCombo.setLoading(true);
+        Ext.Ajax.request({
+            url: '/ax/tree.php',
+            params: { vehs: 1, state: 1 },
+            success: function(response) {
+                try {
+                    var data = Ext.decode(response.responseText);
+                    var vehicles = me.extractM25Vehicles(data);
+                    me.vehicleCombo.store.loadData(vehicles);
+                    if (vehicles.length === 0) {
+                        Ext.Msg.alert((typeof l === 'function') ? l('Информация') : 'Информация',
+                            (typeof l === 'function') ? l('Объекты с оборудованием M25 не найдены.') : 'Нет M25 устройств');
+                    } else {
+                        console.log('[M25] Загружено M25 ТС:', vehicles.length);
+                    }
+                } catch(e) {
+                    console.error('[M25] Ошибка списка ТС', e);
+                }
+                me.vehicleCombo.setLoading(false);
             },
-            getIframeDom: function() {
-                var el = this.getEl();
-                return el ? el.dom : null;
+            failure: function() {
+                me.vehicleCombo.setLoading(false);
+                Ext.Msg.alert('Ошибка', 'Не удалось загрузить список ТС');
             }
         });
     },
 
-    // Главный метод, вызываемый из Navigation при выборе ТС
-    loadVehicleData: function(vehid, vehicleName, imei, equipment, externalUrl) {
-        this.currentVehicle = { vehid: vehid, name: vehicleName, imei: imei, equipment: equipment };
-        this.currentIframeSrc = externalUrl;
-        
-        // Обновляем заголовок панели
-        this.setTitle((typeof l === 'function') ? l('M25 Monitor — ') + vehicleName : 'M25 Monitor — ' + vehicleName);
-        
-        // Загружаем iframe
-        var iframeDom = this.iframe.getIframeDom();
-        if (iframeDom) iframeDom.src = externalUrl;
-        
-        // Загружаем данные датчиков
+    // Рекурсивный обход дерева PILOT, сбор только ТС c M25
+    extractM25Vehicles: function(nodes) {
+        var me = this;
+        var result = [];
+        Ext.Array.each(nodes, function(node) {
+            var isVehicle = (node.type === 'veh' || node.vehid);
+            var equipment = me.extractEquipment(node);
+            var hasM25 = equipment && equipment.toLowerCase().indexOf('m25') !== -1;
+
+            if (isVehicle && hasM25) {
+                result.push({
+                    vehid: node.vehid,
+                    text: node.text || node.name || (typeof l === 'function' ? l('Без имени') : 'Без имени'),
+                    imei: me.extractImei(node),
+                    equipment: equipment
+                });
+            } else if (node.children && node.children.length) {
+                result = result.concat(me.extractM25Vehicles(node.children));
+            }
+        });
+        return result;
+    },
+
+    extractEquipment: function(node) {
+        var candidates = ['equipment', 'model', 'device', 'hardware', 'devicetype', 'tracker', 'gps_type', 'module'];
+        for (var i = 0; i < candidates.length; i++) {
+            var val = node[candidates[i]];
+            if (val && typeof val === 'string' && val.trim() !== '') return val;
+        }
+        for (var key in node) {
+            if (typeof node[key] === 'string' && node[key].trim() !== '') {
+                var lowerKey = key.toLowerCase();
+                if (lowerKey.indexOf('equip') !== -1 || lowerKey.indexOf('device') !== -1 || lowerKey.indexOf('model') !== -1) {
+                    return node[key];
+                }
+            }
+        }
+        return '';
+    },
+
+    extractImei: function(node) {
+        var candidates = ['imei', 'serial', 'device_id', 'tracker_serial'];
+        for (var i = 0; i < candidates.length; i++) {
+            var val = node[candidates[i]];
+            if (val && typeof val === 'string' && val.trim() !== '') return val;
+        }
+        return '';
+    },
+
+    // Когда пользователь выбрал ТС из комбобокса
+    onVehicleSelected: function(record) {
+        this.currentVehicleId = record.get('vehid');
+        this.currentVehicleName = record.get('text');
+
+        // Обновляем информационную строку
+        var infoText = this.down('#infoText');
+        if (infoText) {
+            infoText.update('<span class="m25-monitor-info">' +
+                ((typeof l === 'function') ? l('Выбран: ') : 'Выбран: ') +
+                Ext.String.htmlEncode(this.currentVehicleName) + '</span>');
+        }
+
+        // Загружаем внешнюю страницу в iframe
+        var url = 'https://mega-info.su/dealer2/?vehicle_id=' + encodeURIComponent(this.currentVehicleId);
+        this.loadIframe(url);
+
+        // Загружаем датчики
         this.refreshSensors();
     },
 
-    // Запрос текущих данных ТС через /ax/current_data.php
+    loadIframe: function(url) {
+        if (!this.iframe) return;
+        var iframeDom = this.iframe.getIframeDom();
+        if (iframeDom) {
+            iframeDom.src = url;
+        }
+    },
+
     refreshSensors: function() {
         var me = this;
-        if (!me.currentVehicle || !me.currentVehicle.vehid) {
+        if (!me.currentVehicleId) {
             me.sensorStore.loadData([]);
             return;
         }
-        var vehid = me.currentVehicle.vehid;
         me.sensorGrid.setLoading(true);
-        
-        // Эндпоинт для получения текущих данных всех ТС (или одного)
         Ext.Ajax.request({
             url: '/ax/current_data.php',
-            params: { vehid: vehid },   // можно передать ID конкретного ТС
+            params: { vehid: me.currentVehicleId },
             success: function(response) {
                 try {
                     var data = Ext.decode(response.responseText);
-                    // Структура ответа может быть разной: { objects: [...] } или массив
                     var vehicles = data.objects || data.data || (Ext.isArray(data) ? data : []);
                     var vehicleData = null;
                     if (Ext.isArray(vehicles)) {
                         vehicleData = Ext.Array.findBy(vehicles, function(v) {
-                            return v.vehid == vehid || v.id == vehid;
+                            return v.vehid == me.currentVehicleId || v.id == me.currentVehicleId;
                         });
                     } else if (vehicles && typeof vehicles === 'object') {
                         vehicleData = vehicles;
                     }
-                    
                     if (vehicleData) {
                         me.displaySensors(vehicleData);
                     } else {
                         me.sensorStore.loadData([{ param: 'Статус', value: 'Нет данных', unit: '' }]);
                     }
                 } catch(e) {
-                    console.error('[M25] Ошибка парсинга current_data', e);
-                    me.sensorStore.loadData([{ param: 'Ошибка', value: e.message, unit: '' }]);
+                    console.error('[M25] Ошибка датчиков', e);
                 }
                 me.sensorGrid.setLoading(false);
             },
             failure: function() {
-                me.sensorStore.loadData([{ param: 'Ошибка', value: 'Не удалось загрузить данные', unit: '' }]);
+                me.sensorStore.loadData([{ param: 'Ошибка', value: 'Не удалось загрузить', unit: '' }]);
                 me.sensorGrid.setLoading(false);
             }
         });
     },
 
-    // Отображение полученных данных (датчики, параметры)
     displaySensors: function(vehicleData) {
         var records = [];
-        // Основные поля
         if (vehicleData.name) records.push({ param: 'Название', value: vehicleData.name, unit: '' });
         if (vehicleData.imei) records.push({ param: 'IMEI', value: vehicleData.imei, unit: '' });
         if (vehicleData.model) records.push({ param: 'Модель', value: vehicleData.model, unit: '' });
         if (vehicleData.equipment) records.push({ param: 'Оборудование', value: vehicleData.equipment, unit: '' });
-        
-        // Датчики: обычно находятся в vehicleData.sensors или в полях типа fuel, ignition, etc.
+
         var sensors = vehicleData.sensors || [];
         if (Ext.isArray(sensors)) {
             Ext.Array.each(sensors, function(s) {
@@ -165,38 +281,39 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                 });
             });
         }
-        
-        // Распространённые стандартные поля
+
         var commonFields = {
             'fuel': 'Топливо',
             'ignition': 'Зажигание',
             'speed': 'Скорость',
             'mileage': 'Пробег',
-            'engine_hours': 'Моточасы',
-            'temperature': 'Температура'
+            'engine_hours': 'Моточасы'
         };
         for (var key in commonFields) {
             if (vehicleData[key] !== undefined) {
                 records.push({ param: commonFields[key], value: vehicleData[key], unit: (key === 'speed' ? 'км/ч' : (key === 'fuel' ? 'л' : '')) });
             }
         }
-        
+
         if (records.length === 0) {
             records.push({ param: 'Информация', value: 'Нет дополнительных датчиков', unit: '' });
         }
         this.sensorStore.loadData(records);
     },
 
-    // Упрощённый метод для совместимости со старым Navigation
-    loadUrl: function(url, vehicleName) {
-        this.loadVehicleData(null, vehicleName, null, null, url);
-    },
-
-    reset: function() {
-        this.currentVehicle = null;
-        this.setTitle((typeof l === 'function') ? l('M25 Monitor — внешняя страница') : 'M25 Monitor');
-        var iframeDom = this.iframe.getIframeDom();
-        if (iframeDom) iframeDom.src = 'about:blank';
-        this.sensorStore.loadData([]);
+    createIframe: function() {
+        var me = this;
+        this.iframe = Ext.create('Ext.Component', {
+            region: 'center',
+            autoEl: {
+                tag: 'iframe',
+                src: 'about:blank',
+                style: 'width: 100%; height: 100%; border: none;'
+            },
+            getIframeDom: function() {
+                var el = this.getEl();
+                return el ? el.dom : null;
+            }
+        });
     }
 });
