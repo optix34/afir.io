@@ -6,7 +6,7 @@
  * - /ax/current_data.php  — текущие параметры (скорость, топливо, зажигание)
  * 
  * Левая панель: таблица с колонками: Название, UniqID, Agent ID, Тип (оборудование), IMEI, Модель, Скорость, Топливо, Зажигание.
- * Правая панель: детальные датчики выбранного ТС + iframe с внешней страницей.
+ * Правая панель: только iframe с внешней страницей (датчики удалены).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
@@ -84,25 +84,6 @@ Ext.define('Store.m25_monitor.Module', {
     },
 
     createMainPanel: function() {
-        this.sensorStore = Ext.create('Ext.data.Store', {
-            fields: ['param', 'value', 'unit'],
-            data: []
-        });
-
-        this.sensorGrid = Ext.create('Ext.grid.Panel', {
-            title: 'Датчики и параметры выбранного ТС',
-            height: 250,
-            collapsible: true,
-            collapsed: false,
-            store: this.sensorStore,
-            columns: [
-                { text: 'Параметр', dataIndex: 'param', flex: 2 },
-                { text: 'Значение', dataIndex: 'value', flex: 2 },
-                { text: 'Ед. изм.', dataIndex: 'unit', flex: 1 }
-            ],
-            viewConfig: { emptyText: 'Выберите устройство в левой панели' }
-        });
-
         this.iframe = Ext.create('Ext.Component', {
             autoEl: {
                 tag: 'iframe',
@@ -116,9 +97,9 @@ Ext.define('Store.m25_monitor.Module', {
         });
 
         this.mainPanel = Ext.create('Ext.panel.Panel', {
-            layout: 'border',
-            title: 'Детальная информация',
-            items: [this.sensorGrid, this.iframe]
+            layout: 'fit',
+            title: 'Внешняя страница',
+            items: [this.iframe]
         });
 
         skeleton.mapframe.add(this.mainPanel);
@@ -178,7 +159,6 @@ Ext.define('Store.m25_monitor.Module', {
                             me.vehiclesStore.loadData(records);
                             if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
 
-                            // Автоматически выбрать первую запись, если есть
                             if (records.length > 0) {
                                 var firstRecord = me.vehiclesStore.getAt(0);
                                 me.vehiclesGrid.getSelectionModel().select(firstRecord);
@@ -248,70 +228,5 @@ Ext.define('Store.m25_monitor.Module', {
             var iframeDom = this.iframe.getIframeDom();
             if (iframeDom) iframeDom.src = url;
         }
-        this.loadDetailedSensors(vehid);
-    },
-
-    loadDetailedSensors: function(vehid) {
-        var me = this;
-        if (this.sensorGrid) this.sensorGrid.setLoading(true);
-        Ext.Ajax.request({
-            url: '/ax/current_data.php',
-            params: { vehid: vehid },
-            success: function(resp) {
-                try {
-                    var data = Ext.decode(resp.responseText);
-                    var vehicles = data.objects || data.data || (Ext.isArray(data) ? data : []);
-                    var vehicleData = null;
-                    if (Ext.isArray(vehicles)) {
-                        vehicleData = Ext.Array.findBy(vehicles, function(v) { return v.vehid == vehid || v.id == vehid; });
-                    } else if (vehicles && typeof vehicles === 'object') {
-                        vehicleData = vehicles;
-                    }
-                    if (vehicleData) {
-                        me.displayDetailedSensors(vehicleData);
-                    } else {
-                        me.sensorStore.loadData([{ param: 'Статус', value: 'Нет данных', unit: '' }]);
-                    }
-                } catch(e) {
-                    console.error('[M25] Ошибка датчиков', e);
-                }
-                if (me.sensorGrid) me.sensorGrid.setLoading(false);
-            },
-            failure: function() {
-                me.sensorStore.loadData([{ param: 'Ошибка', value: 'Не удалось загрузить датчики', unit: '' }]);
-                if (me.sensorGrid) me.sensorGrid.setLoading(false);
-            }
-        });
-    },
-
-    displayDetailedSensors: function(vehicleData) {
-        var records = [];
-        if (vehicleData.name) records.push({ param: 'Название', value: vehicleData.name, unit: '' });
-        if (vehicleData.vehid) records.push({ param: 'UniqID', value: vehicleData.vehid, unit: '' });
-        if (vehicleData.agent_id) records.push({ param: 'Agent ID', value: vehicleData.agent_id, unit: '' });
-        if (vehicleData.imei) records.push({ param: 'IMEI', value: vehicleData.imei, unit: '' });
-        if (vehicleData.model) records.push({ param: 'Модель', value: vehicleData.model, unit: '' });
-        if (vehicleData.equipment) records.push({ param: 'Оборудование', value: vehicleData.equipment, unit: '' });
-        if (vehicleData.speed !== undefined) records.push({ param: 'Скорость', value: vehicleData.speed, unit: 'км/ч' });
-        if (vehicleData.fuel !== undefined) records.push({ param: 'Топливо', value: vehicleData.fuel, unit: 'л' });
-        if (vehicleData.ignition !== undefined) records.push({ param: 'Зажигание', value: vehicleData.ignition === 1 ? 'Вкл' : 'Выкл', unit: '' });
-        if (vehicleData.mileage !== undefined) records.push({ param: 'Пробег', value: vehicleData.mileage, unit: 'км' });
-        if (vehicleData.engine_hours !== undefined) records.push({ param: 'Моточасы', value: vehicleData.engine_hours, unit: 'ч' });
-
-        var sensors = vehicleData.sensors || [];
-        if (Ext.isArray(sensors)) {
-            Ext.Array.each(sensors, function(s) {
-                records.push({
-                    param: s.name || s.label || 'Датчик',
-                    value: s.value !== undefined ? s.value : '—',
-                    unit: s.unit || ''
-                });
-            });
-        }
-
-        if (records.length === 0) {
-            records.push({ param: 'Информация', value: 'Нет дополнительных датчиков', unit: '' });
-        }
-        this.sensorStore.loadData(records);
     }
 });
