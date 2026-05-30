@@ -3,19 +3,19 @@
  * 
  * Левая панель: таблица всех ТС клиента с полями:
  *   Название, UniqID, Agent ID, Тип, Модель, IMEI, Скорость, Топливо, Зажигание.
- * Правая панель: iframe с внешней страницей и панель навигации (назад, вперёд, обновить, домой, открыть в новом окне, адресная строка).
+ * Правая панель: iframe с внешней страницей https://mega-info.su/ и панель навигации (назад, вперёд, обновить, домой, открыть в новом окне, адресная строка).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    // Базовый URL внешнего сервиса (можно изменить)
-    externalBaseUrl: 'https://mega-info.su/dealer2/',
+    // Базовый URL внешнего сервиса (изменён на главную страницу mega-info.su)
+    externalBaseUrl: 'https://mega-info.su/',
 
     initModule: function() {
         var me = this;
-        console.log('[M25] Инициализация расширения (с полной навигацией iframe)');
+        console.log('[M25] Инициализация расширения (полная навигация iframe, главная страница mega-info.su)');
 
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
             Ext.defer(function() { me.initModule(); }, 500, me);
@@ -137,11 +137,12 @@ Ext.define('Store.m25_monitor.Module', {
 
         var homeBtn = Ext.create('Ext.button.Button', {
             iconCls: 'fa fa-home',
-            tooltip: 'На главную',
+            tooltip: 'На главную (mega-info.su)',
             handler: function() {
                 var iframeDom = me.iframe.getIframeDom();
-                if (iframeDom && me.currentBaseUrl) {
-                    iframeDom.src = me.currentBaseUrl;
+                if (iframeDom) {
+                    iframeDom.src = me.externalBaseUrl;
+                    if (me.urlField) me.urlField.setValue(me.externalBaseUrl);
                 }
             }
         });
@@ -154,7 +155,7 @@ Ext.define('Store.m25_monitor.Module', {
                 if (iframeDom && iframeDom.src && iframeDom.src !== 'about:blank') {
                     window.open(iframeDom.src, '_blank');
                 } else {
-                    Ext.Msg.alert('Информация', 'Сначала выберите транспортное средство.');
+                    Ext.Msg.alert('Информация', 'Сначала выберите транспортное средство или перейдите по ссылке.');
                 }
             }
         });
@@ -168,13 +169,12 @@ Ext.define('Store.m25_monitor.Module', {
                 specialkey: function(field, e) {
                     if (e.getKey() === e.ENTER) {
                         var url = field.getValue();
-                        if (url && !url.startsWith('http')) {
+                        if (url && !url.match(/^https?:\/\//i)) {
                             url = 'https://' + url;
                         }
                         if (url) {
                             var iframeDom = me.iframe.getIframeDom();
                             if (iframeDom) iframeDom.src = url;
-                            me.currentBaseUrl = url;
                         }
                     }
                 }
@@ -191,16 +191,8 @@ Ext.define('Store.m25_monitor.Module', {
 
         // Основная панель правой области
         this.mainPanel = Ext.create('Ext.panel.Panel', {
-            layout: 'border',
-            title: 'Внешняя страница (полная навигация)',
-            dockedItems: [navToolbar],
-            items: [this.iframe]
-        });
-        // Корректируем: dockedItems размещаются вверху, а items в центре (layout border с одним центром)
-        // Проще: панель с layout 'fit', а тулбар прикреплён сверху
-        this.mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            title: 'Внешняя страница',
+            title: 'Внешняя страница (mega-info.su)',
             tbar: navToolbar,
             items: [this.iframe]
         });
@@ -324,13 +316,12 @@ Ext.define('Store.m25_monitor.Module', {
 
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
+        // Формируем URL для главной страницы mega-info.su с параметром vehicle_id
         var url = this.externalBaseUrl + '?vehicle_id=' + encodeURIComponent(vehid);
         if (this.iframe) {
             var iframeDom = this.iframe.getIframeDom();
             if (iframeDom) {
                 iframeDom.src = url;
-                // Сохраняем базовый URL для кнопки "Домой"
-                this.currentBaseUrl = url;
                 // Обновляем адресную строку
                 if (this.urlField) {
                     this.urlField.setValue(url);
