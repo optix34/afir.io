@@ -1,12 +1,15 @@
 /**
  * M25 Monitor — монолитное расширение PILOT.
  * 
- * Использует API PILOT для отображения всех транспортных средств клиента:
- * - /ax/tree.php          — получение иерархии, включая поля equipment, imei, model (если доступны)
+ * Отображает все транспортные средства клиента в таблице.
+ * При выборе ТС открывается внешняя страница в новой вкладке (обход проблем с iframe).
+ * 
+ * Использует API PILOT:
+ * - /ax/tree.php          — получение иерархии (vehid, название, оборудование, IMEI, модель)
  * - /ax/current_data.php  — текущие параметры (скорость, топливо, зажигание)
  * 
- * Левая панель: таблица с колонками: Название, UniqID, Agent ID, Тип (оборудование), IMEI, Модель, Скорость, Топливо, Зажигание.
- * Правая панель: только iframe с внешней страницей (датчики удалены).
+ * Левая панель: таблица с колонками: Название, UniqID, Agent ID, Тип, Модель, IMEI, Скорость, Топливо, Зажигание.
+ * Правая панель: пустая (не используется).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
@@ -15,7 +18,7 @@ Ext.define('Store.m25_monitor.Module', {
 
     initModule: function() {
         var me = this;
-        console.log('[M25] Инициализация расширения (API PILOT)');
+        console.log('[M25] Инициализация расширения (открытие внешней страницы в новой вкладке)');
 
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
             Ext.defer(function() { me.initModule(); }, 500, me);
@@ -23,7 +26,7 @@ Ext.define('Store.m25_monitor.Module', {
         }
 
         me.createNavigationTab();
-        me.createMainPanel();
+        me.createDummyMainPanel();   // правая панель-пустышка
         me.navTab.map_frame = me.mainPanel;
         me.loadAllVehicles();
 
@@ -83,25 +86,15 @@ Ext.define('Store.m25_monitor.Module', {
         skeleton.navigation.add(this.navTab);
     },
 
-    createMainPanel: function() {
-        this.iframe = Ext.create('Ext.Component', {
-            autoEl: {
-                tag: 'iframe',
-                src: 'about:blank',
-                style: 'width:100%; height:100%; border:none;'
-            },
-            getIframeDom: function() {
-                var el = this.getEl();
-                return el ? el.dom : null;
-            }
-        });
-
+    /**
+     * Правая панель – пустая заглушка (не используется, но требуется для связи)
+     */
+    createDummyMainPanel: function() {
         this.mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            title: 'Внешняя страница',
-            items: [this.iframe]
+            title: 'Информация',
+            html: '<div style="padding:20px; text-align:center;">Выберите транспортное средство в левой панели.<br>Страница откроется в новой вкладке.</div>'
         });
-
         skeleton.mapframe.add(this.mainPanel);
     },
 
@@ -116,14 +109,13 @@ Ext.define('Store.m25_monitor.Module', {
                 try {
                     var treeData = Ext.decode(resp.responseText);
                     console.log('[M25] tree.php получен, тип данных:', Ext.typeOf(treeData));
-                    console.log('[M25] tree.php, первые 2 элемента:', treeData.slice(0, 2));
                     if (treeData && treeData[0]) {
                         console.log('[M25] Ключи первого узла:', Object.keys(treeData[0]));
                         console.log('[M25] Содержимое первого узла:', treeData[0]);
                     }
 
                     var allVehicles = me.extractVehiclesWithDetails(treeData);
-                    console.log('[M25] Найдено ТС (с деталями из tree.php):', allVehicles.length);
+                    console.log('[M25] Найдено ТС:', allVehicles.length);
 
                     if (allVehicles.length === 0) {
                         Ext.Msg.alert('Внимание', 'Не удалось найти транспортные средства. Проверьте консоль (F12).');
@@ -159,6 +151,7 @@ Ext.define('Store.m25_monitor.Module', {
                             me.vehiclesStore.loadData(records);
                             if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
 
+                            // Автовыбор первой строки
                             if (records.length > 0) {
                                 var firstRecord = me.vehiclesStore.getAt(0);
                                 me.vehiclesGrid.getSelectionModel().select(firstRecord);
@@ -221,12 +214,12 @@ Ext.define('Store.m25_monitor.Module', {
         return '';
     },
 
+    /**
+     * При выборе ТС открываем внешнюю страницу в новой вкладке
+     */
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
         var url = 'https://mega-info.su/dealer2/?vehicle_id=' + encodeURIComponent(vehid);
-        if (this.iframe) {
-            var iframeDom = this.iframe.getIframeDom();
-            if (iframeDom) iframeDom.src = url;
-        }
+        window.open(url, '_blank');
     }
 });
