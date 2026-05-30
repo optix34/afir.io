@@ -1,34 +1,37 @@
 /**
- * M25 Monitor - PILOT Extension (без левой панели)
- * Точка входа. Создаёт только правую панель с выбором ТС, датчиками и iframe.
+ * M25 Monitor - PILOT Extension
+ * Точка входа. Создаёт левую панель (дерево M25) и правую панель (iframe).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    getModuleBaseUrl: function() {
+    // URL к CSS относительно расположения Module.js
+    getCssUrl: function() {
         var scripts = document.getElementsByTagName('script');
         for (var i = 0; i < scripts.length; i++) {
-            var src = scripts[i].src || '';
-            if (src.indexOf('/Module.js') !== -1) {
-                return src.substring(0, src.lastIndexOf('/') + 1);
+            var src = scripts[i].src;
+            if (src && src.indexOf('/Module.js') !== -1) {
+                return src.replace('Module.js', 'view/style.css');
             }
         }
-        return './';
+        return './view/style.css';
     },
 
     initModule: function() {
-        console.log('[M25] Инициализация расширения (без левой панели)...');
+        var me = this;
+        console.log('[M25] Extension initializing...');
 
-        if (!window.skeleton || !skeleton.mapframe) {
-            console.warn('[M25] Skeleton.mapframe не готов, повтор через 500ms');
-            Ext.defer(this.initModule, 500, this);
+        // Защита: проверяем наличие skeleton
+        if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
+            console.error('[M25] Skeleton not ready, retry in 500ms');
+            Ext.defer(me.initModule, 500, me);
             return;
         }
 
-        // Подключаем CSS
-        var cssUrl = this.getModuleBaseUrl() + 'view/style.css';
+        // Подключаем CSS, если ещё не подключён
+        var cssUrl = me.getCssUrl();
         if (!document.querySelector('link[href="' + cssUrl + '"]')) {
             var link = document.createElement('link');
             link.rel = 'stylesheet';
@@ -36,14 +39,49 @@ Ext.define('Store.m25_monitor.Module', {
             document.head.appendChild(link);
         }
 
-        // Создаём только главную панель
+        // Создаём правую панель (MainPanel)
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
             id: 'm25monitor-mainpanel-' + Ext.id()
         });
 
-        // Добавляем в основной контент (правую область)
+        // Создаём левую панель навигации
+        var navPanel = Ext.create('Store.m25_monitor.view.Navigation', {
+            title: me.getTitle(),
+            iconCls: 'fa fa-microchip',
+            iconAlign: 'top',
+            minimized: true,
+            layout: 'fit'
+        });
+
+        // Связываем панели
+        navPanel.setMainPanel(mainPanel);
+        navPanel.mainPanelRef = mainPanel;
+
+        // Оборачиваем в LeftBarPanel (требование PILOT)
+        var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
+            title: me.getTitle(),
+            iconCls: 'fa fa-microchip',
+            iconAlign: 'top',
+            minimized: true,
+            layout: 'fit',
+            items: [navPanel]
+        });
+
+        // Ключевая связь: левая панель указывает на правую
+        navTab.map_frame = mainPanel;
+
+        // Добавляем в интерфейс PILOT
+        skeleton.navigation.add(navTab);
         skeleton.mapframe.add(mainPanel);
 
-        console.log('[M25] Расширение загружено, левая панель отсутствует');
+        console.log('[M25] Extension initialized successfully');
+    },
+
+    getTitle: function() {
+        // Безопасная локализация
+        if (typeof l === 'function') {
+            return l('M25 Monitor');
+        }
+        return 'M25 Monitor';
     }
 });
