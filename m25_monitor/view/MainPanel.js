@@ -1,22 +1,23 @@
 /**
  * MainPanel.js — отображение всех транспортных средств клиента.
- * - Загружает список всех ТС из /ax/tree.php (объединяя с текущими данными из /ax/current_data.php)
- * - Показывает таблицу: Название, IMEI, Оборудование, Скорость, Топливо, Зажигание
- * - При клике на строку загружается iframe с внешней страницей и детальные датчики
+ * Заголовок панели берётся из переданного свойства panelTitle.
  */
 Ext.define('Store.m25_monitor.view.MainPanel', {
     extend: 'Ext.panel.Panel',
     alias: 'widget.m25monitor-mainpanel',
 
     layout: 'border',
-    title: (typeof l === 'function') ? l('M25 Monitor — все объекты клиента') : 'M25 Monitor',
 
-    currentVehicleId: null,
-    iframe: null,
-    sensorGrid: null,
-    vehiclesGrid: null,
+    /**
+     * @cfg {String} panelTitle
+     * Заголовок панели, переданный из Module.js
+     */
+    panelTitle: 'M25 Monitor',
 
     initComponent: function() {
+        // Устанавливаем заголовок из конфигурации (передан из Module.js)
+        this.title = this.panelTitle;
+
         // Создаём левую часть (грид со списком ТС)
         this.createVehiclesGrid();
         // Создаём правую часть (iframe + датчики)
@@ -35,6 +36,7 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
      * Грид со всеми ТС (занимает 40% ширины)
      */
     createVehiclesGrid: function() {
+        var me = this;
         this.vehiclesStore = Ext.create('Ext.data.Store', {
             fields: ['vehid', 'name', 'imei', 'equipment', 'speed', 'fuel', 'ignition', 'rawData'],
             data: [],
@@ -59,10 +61,10 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                 selectionchange: function(sm, selected) {
                     if (selected && selected.length) {
                         var record = selected[0];
-                        this.onVehicleSelect(record);
+                        me.onVehicleSelect(record);
                     }
                 },
-                scope: this
+                scope: me
             },
             dockedItems: [{
                 xtype: 'toolbar',
@@ -71,8 +73,8 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                     {
                         text: (typeof l === 'function') ? l('Обновить') : 'Обновить',
                         iconCls: 'fa fa-sync-alt',
-                        handler: this.loadAllVehicles,
-                        scope: this
+                        handler: me.loadAllVehicles,
+                        scope: me
                     }
                 ]
             }]
@@ -83,6 +85,8 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
      * Правая панель: верхняя часть – датчики, центральная – iframe
      */
     createRightPanel: function() {
+        var me = this;
+
         // Таблица датчиков (детальная информация по выбранному ТС)
         this.sensorStore = Ext.create('Ext.data.Store', {
             fields: ['param', 'value', 'unit'],
@@ -141,7 +145,7 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
             success: function(response) {
                 try {
                     var treeData = Ext.decode(response.responseText);
-                    var allVehicles = me.extractAllVehicles(treeData); // рекурсивный сбор без фильтрации
+                    var allVehicles = me.extractAllVehicles(treeData);
 
                     // Теперь получаем текущие данные (скорость, топливо, зажигание)
                     Ext.Ajax.request({
@@ -150,7 +154,6 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                             try {
                                 var currentData = Ext.decode(resp2.responseText);
                                 var currentMap = {};
-                                // currentData может быть массивом объектов или объектом с полем objects
                                 var items = currentData.objects || currentData.data || (Ext.isArray(currentData) ? currentData : []);
                                 Ext.Array.each(items, function(item) {
                                     if (item.vehid) {
@@ -158,7 +161,6 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
                                     }
                                 });
 
-                                // Объединяем
                                 var records = [];
                                 Ext.Array.each(allVehicles, function(veh) {
                                     var cur = currentMap[veh.vehid] || {};
@@ -210,7 +212,7 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
             if (isVehicle) {
                 result.push({
                     vehid: node.vehid,
-                    name: node.text || node.name || (typeof l === 'function') ? l('Без имени') : 'Без имени',
+                    name: node.text || node.name || ((typeof l === 'function') ? l('Без имени') : 'Без имени'),
                     imei: me.extractImei(node),
                     equipment: me.extractEquipment(node)
                 });
@@ -256,7 +258,7 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
         var vehicleName = record.get('name');
         me.currentVehicleId = vehid;
 
-        // Обновляем заголовок правой панели
+        // Обновляем заголовок правой панели (детальной)
         this.rightPanel.setTitle((typeof l === 'function') ? l('Детали: ') + vehicleName : vehicleName);
 
         // Загружаем iframe
@@ -264,12 +266,12 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
         var iframeDom = this.iframe.getIframeDom();
         if (iframeDom) iframeDom.src = url;
 
-        // Загружаем детальные датчики (более полные, чем в таблице)
+        // Загружаем детальные датчики
         me.loadDetailedSensors(vehid);
     },
 
     /**
-     * Запрос детальных датчиков для выбранного ТС (используем /ax/current_data.php с vehid)
+     * Запрос детальных датчиков для выбранного ТС
      */
     loadDetailedSensors: function(vehid) {
         var me = this;
@@ -308,7 +310,6 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
 
     displayDetailedSensors: function(vehicleData) {
         var records = [];
-        // Основные поля
         if (vehicleData.name) records.push({ param: 'Название', value: vehicleData.name, unit: '' });
         if (vehicleData.imei) records.push({ param: 'IMEI', value: vehicleData.imei, unit: '' });
         if (vehicleData.model) records.push({ param: 'Модель', value: vehicleData.model, unit: '' });
@@ -319,7 +320,6 @@ Ext.define('Store.m25_monitor.view.MainPanel', {
         if (vehicleData.mileage !== undefined) records.push({ param: 'Пробег', value: vehicleData.mileage, unit: 'км' });
         if (vehicleData.engine_hours !== undefined) records.push({ param: 'Моточасы', value: vehicleData.engine_hours, unit: 'ч' });
 
-        // Кастомные датчики
         var sensors = vehicleData.sensors || [];
         if (Ext.isArray(sensors)) {
             Ext.Array.each(sensors, function(s) {
