@@ -1,0 +1,11 @@
+/* M25 Monitor – стили для таблицы и iframe */
+.x-grid-with-row-lines .x-grid-item {
+    line-height: 1.4;
+}
+/* Информационная строка (опционально) */
+.m25-info {
+    background: #eef2ff;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+}
