@@ -1,19 +1,18 @@
 /**
- * style.css - M25 Monitor Extension
- * Стили для расширения PILOT.
- * Включает оформление кнопки в хедере, модального окна, дерева, тулбаров,
- * информационных панелей, iframe и анимаций.
+ * style.css — стили для расширения M25 Monitor
+ * Обеспечивают корректное отображение кнопок, иконок, iframe и панелей.
  */
 
 /* ---------------------------
-   1. Кнопка в хедере PILOT
+   1. Кнопка в хедере (если используется — закомментировано, так как вкладка)
+   Оставлено на случай, если захотите добавить кнопку позже.
 ---------------------------- */
+/*
 .m25-monitor-header-btn {
     background: #2563eb !important;
     border-color: #1d4ed8 !important;
     color: #ffffff !important;
     margin: 0 4px;
-    transition: all 0.2s ease;
 }
 .m25-monitor-header-btn .x-btn-inner,
 .m25-monitor-header-btn .x-btn-icon-el {
@@ -21,11 +20,11 @@
 }
 .m25-monitor-header-btn:hover {
     background: #1d4ed8 !important;
-    transform: translateY(-1px);
 }
+*/
 
 /* ---------------------------
-   2. Общие стили для окон и панелей
+   2. Общие стили для панелей
 ---------------------------- */
 .m25-monitor-main-panel .x-panel-body {
     background: #ffffff;
@@ -41,7 +40,7 @@
     background: #f8fafc;
 }
 
-/* Анимация загрузки iframe (родительский элемент получает этот класс) */
+/* Анимация загрузки iframe (опционально) */
 .m25-monitor-iframe-loading {
     position: relative;
 }
@@ -64,7 +63,7 @@
 }
 
 /* ---------------------------
-   4. Информационная строка в тулбаре
+   4. Информационная строка (если используется)
 ---------------------------- */
 .m25-monitor-info-text {
     font-size: 12px;
@@ -81,7 +80,7 @@
 }
 
 /* ---------------------------
-   5. Сообщения об ошибках в тулбаре
+   5. Сообщения об ошибках
 ---------------------------- */
 .m25-monitor-error {
     background: #fee2e2;
@@ -92,7 +91,7 @@
 }
 
 /* ---------------------------
-   6. Стили для кнопок тулбара (внутри окна)
+   6. Стили кнопок тулбара
 ---------------------------- */
 .m25-monitor-toolbar .x-btn {
     transition: all 0.2s;
@@ -108,38 +107,16 @@
 /* ---------------------------
    7. Иконки Font Awesome (гарантия отображения)
 ---------------------------- */
-/* Для Ext JS тулбаров и меню */
 .x-btn .x-btn-icon-el {
     font-family: 'Font Awesome 6 Free', 'FontAwesome' !important;
     font-weight: 900;
 }
-/* Fallback для старых версий FontAwesome */
 .fa, .fas, .far, .fab {
     font-family: 'Font Awesome 6 Free', 'FontAwesome' !important;
 }
 
 /* ---------------------------
-   8. Дерево (TreePanel) — иконки для M25 устройств
----------------------------- */
-/* Иконка для узлов-транспортных средств с M25 */
-.x-tree-icon-custom-m25 {
-    background-image: none !important;
-}
-.x-tree-icon-custom-m25:before {
-    content: '\f2db';  /* fa-microchip */
-    font-family: 'Font Awesome 6 Free', 'FontAwesome' !important;
-    font-weight: 900;
-    color: #2563eb;
-}
-/* Для групп (папок) можно задать другую иконку */
-.x-tree-icon-parent-m25 .x-tree-icon:before {
-    content: '\f07b';  /* fa-folder */
-    font-family: 'Font Awesome 6 Free', 'FontAwesome' !important;
-    color: #64748b;
-}
-
-/* ---------------------------
-   9. Стили для таблицы датчиков (MainPanel)
+   8. Таблица датчиков
 ---------------------------- */
 .m25-sensor-grid .x-grid-cell {
     font-size: 12px;
@@ -149,18 +126,8 @@
 }
 
 /* ---------------------------
-   10. Общие утилиты
+   9. Утилиты
 ---------------------------- */
-/* Плавное появление окна */
-.x-window.m25-monitor-window {
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-.x-window.m25-monitor-window.x-window-default {
-    opacity: 1;
-}
-
-/* Стиль для пустого текста в гриде */
 .x-grid-empty {
     color: #94a3b8;
     font-style: italic;
