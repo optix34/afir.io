@@ -1,35 +1,23 @@
 /**
  * M25 Monitor — PILOT Extension
- * Вкладка в левой панели, но без внутреннего дерева.
- * Выбор ТС — через комбобокс в MainPanel.
+ * Создаёт вкладку в левой навигации, внутри которой находится MainPanel.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    getModuleBaseUrl: function() {
-        var scripts = document.getElementsByTagName('script');
-        for (var i = 0; i < scripts.length; i++) {
-            var src = scripts[i].src || '';
-            if (src.indexOf('/Module.js') !== -1) {
-                return src.substring(0, src.lastIndexOf('/') + 1);
-            }
-        }
-        return location.pathname.replace(/\/[^/]*$/, '/');
-    },
-
-    initModule: function() {
+    initModule: function () {
         var me = this;
-        console.log('[M25] Инициализация (вкладка без боковой панели)...');
 
-        if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
+        // Ожидаем готовность skeleton
+        if (!window.skeleton || !skeleton.navigation) {
             Ext.defer(me.initModule, 500, me);
             return;
         }
 
-        // Подключаем CSS
-        var cssUrl = me.getModuleBaseUrl() + 'view/style.css';
+        // Подключаем CSS (используем proxied путь, рекомендованный PILOT)
+        var cssUrl = '/store/m25_monitor/view/style.css';
         if (!document.querySelector('link[href="' + cssUrl + '"]')) {
             var link = document.createElement('link');
             link.rel = 'stylesheet';
@@ -37,25 +25,33 @@ Ext.define('Store.m25_monitor.Module', {
             document.head.appendChild(link);
         }
 
-        // Создаём главную панель (она будет содержать комбобокс, iframe и датчики)
+        // Создаём главную панель (с комбобоксом, датчиками и iframe)
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
             id: 'm25monitor-mainpanel-' + Ext.id()
         });
 
-        // Оборачиваем в LeftBarPanel (требование PILOT для вкладки)
+        // Оборачиваем в LeftBarPanel для размещения в левой навигации
         var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
-            title: (typeof l === 'function') ? l('M25 Monitor') : 'M25 Monitor',
+            title: 'M25 Monitor',
             iconCls: 'fa fa-microchip',
             iconAlign: 'top',
             minimized: true,
             layout: 'fit',
-            items: [mainPanel]   // ← только MainPanel, без Navigation
+            items: [mainPanel]
         });
-        navTab.map_frame = mainPanel;   // связь
+        // Обязательная связь: указываем, какая панель является главной для этой вкладки
+        navTab.map_frame = mainPanel;
 
+        // Добавляем вкладку в левую панель
         skeleton.navigation.add(navTab);
-        skeleton.mapframe.add(mainPanel);
 
-        console.log('[M25] Вкладка создана, боковой панели нет');
+        // Добавляем панель в центральную область (mapframe или map_frame)
+        if (skeleton.mapframe) {
+            skeleton.mapframe.add(mainPanel);
+        } else if (skeleton.map_frame) {
+            skeleton.map_frame.add(mainPanel);
+        }
+
+        console.log('[M25] Расширение успешно загружено (вкладка создана)');
     }
 });
