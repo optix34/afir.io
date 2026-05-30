@@ -142,28 +142,34 @@ Ext.define('Store.m25_monitor.Module', {
 
     /**
      * Основной метод загрузки всех транспортных средств.
-     * Использует комбинацию API PILOT:
-     * 1. /ax/tree.php          – получаем список vehid и названия
-     * 2. /ax/current_data.php  – получаем текущие параметры (speed, fuel, ignition)
-     * 3. /ax/unit_info.php     – получаем детали оборудования, IMEI, модель, agent_id (если нет в tree)
      */
     loadAllVehicles: function() {
         var me = this;
         if (this.vehiclesGrid) this.vehiclesGrid.setLoading(true);
 
-        // Шаг 1: получаем иерархию ТС из tree.php
         Ext.Ajax.request({
             url: '/ax/tree.php',
             params: { vehs: 1, state: 1 },
             success: function(resp) {
                 try {
                     var treeData = Ext.decode(resp.responseText);
-                    console.log('[M25] tree.php получен, пример первого узла:', treeData[0]);
+                    console.log('[M25] tree.php получен, тип данных:', Ext.typeOf(treeData));
+                    console.log('[M25] tree.php, первые 2 элемента:', treeData.slice(0, 2));
+                    // Детально выводим первый узел, чтобы увидеть все поля
+                    if (treeData && treeData[0]) {
+                        console.log('[M25] Ключи первого узла:', Object.keys(treeData[0]));
+                    }
 
                     var allVehiclesBasic = me.extractBasicVehicles(treeData);
                     console.log('[M25] Найдено ТС (базово):', allVehiclesBasic.length);
 
-                    // Шаг 2: получаем текущие данные (speed, fuel, ignition)
+                    if (allVehiclesBasic.length === 0) {
+                        Ext.Msg.alert('Внимание', 'Не удалось найти транспортные средства. Проверьте консоль (F12) для деталей.');
+                        if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
+                        return;
+                    }
+
+                    // Загружаем текущие данные
                     Ext.Ajax.request({
                         url: '/ax/current_data.php',
                         success: function(resp2) {
@@ -174,9 +180,7 @@ Ext.define('Store.m25_monitor.Module', {
                                 if (item.vehid) currentMap[item.vehid] = item;
                             });
 
-                            // Шаг 3: для каждого ТС запрашиваем unit_info (можно массово, но делаем по одному – надёжнее)
-                            // Для ускорения можно сначала отобразить основные данные, а затем догрузить equipment/imei.
-                            // Здесь мы сделаем последовательные запросы, но с индикацией загрузки.
+                            // Для каждого ТС загружаем детали через unit_info
                             me.loadDetailedInfoForVehicles(allVehiclesBasic, currentMap, 0, []);
                         },
                         failure: function() {
@@ -199,17 +203,29 @@ Ext.define('Store.m25_monitor.Module', {
 
     /**
      * Рекурсивно извлекает из дерева базовые данные: vehid, name.
+     * Поддерживает различные варианты полей (vehid, id, unit_id, type === 'veh', 'object' и т.п.)
      */
     extractBasicVehicles: function(nodes) {
         var result = [];
         Ext.Array.each(nodes, function(node) {
-            if (node.type === 'veh' || node.vehid) {
-                var vehid = node.vehid || node.id;
+            // Определяем, является ли узел транспортным средством
+            var isVehicle = false;
+            if (node.type === 'veh' || node.type === 'object' || node.type === 'unit') {
+                isVehicle = true;
+            } else if (node.vehid || node.id || node.unit_id) {
+                // Если есть какой-то ID, скорее всего это ТС
+                isVehicle = true;
+            }
+
+            if (isVehicle) {
+                var vehid = node.vehid || node.id || node.unit_id;
                 if (vehid) {
                     result.push({
                         vehid: vehid,
-                        name: node.text || node.name || 'Без имени'
+                        name: node.text || node.name || node.label || 'Без имени'
                     });
+                } else {
+                    console.warn('[M25] Узел определён как ТС, но нет ID:', node);
                 }
             } else if (node.children && node.children.length) {
                 result = result.concat(this.extractBasicVehicles(node.children));
@@ -220,12 +236,10 @@ Ext.define('Store.m25_monitor.Module', {
 
     /**
      * Последовательно загружает детальную информацию для каждого ТС через /ax/unit_info.php.
-     * Используется для получения equipment, imei, model, agent_id.
      */
     loadDetailedInfoForVehicles: function(vehiclesList, currentMap, index, finalRecords) {
         var me = this;
         if (index >= vehiclesList.length) {
-            // Все запросы выполнены
             me.vehiclesStore.loadData(finalRecords);
             if (me.vehiclesGrid) me.vehiclesGrid.setLoading(false);
             if (finalRecords.length === 0) {
@@ -238,14 +252,12 @@ Ext.define('Store.m25_monitor.Module', {
         var vehid = veh.vehid;
         var cur = currentMap[vehid] || {};
 
-        // Запрашиваем unit_info для получения оборудования, IMEI, модели, agent_id
         Ext.Ajax.request({
             url: '/ax/unit_info.php',
             params: { vehid: vehid },
             success: function(resp) {
                 try {
                     var unitData = Ext.decode(resp.responseText);
-                    // unitData может быть объектом с полями equipment, imei, model, agent_id и т.д.
                     var equipment = unitData.equipment || unitData.model || unitData.device || '';
                     var imei = unitData.imei || unitData.serial || '';
                     var model = unitData.model || unitData.vehicle_model || '';
@@ -276,7 +288,6 @@ Ext.define('Store.m25_monitor.Module', {
                         ignition: cur.ignition
                     });
                 }
-                // Рекурсивно переходим к следующему
                 me.loadDetailedInfoForVehicles(vehiclesList, currentMap, index + 1, finalRecords);
             },
             failure: function() {
@@ -297,9 +308,6 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    /**
-     * Обработчик выбора ТС в таблице
-     */
     onVehicleSelect: function(record) {
         var vehid = record.get('vehid');
         var url = 'https://mega-info.su/dealer2/?vehicle_id=' + encodeURIComponent(vehid);
@@ -310,9 +318,6 @@ Ext.define('Store.m25_monitor.Module', {
         this.loadDetailedSensors(vehid);
     },
 
-    /**
-     * Загрузка детальных датчиков для выбранного ТС
-     */
     loadDetailedSensors: function(vehid) {
         var me = this;
         if (this.sensorGrid) this.sensorGrid.setLoading(true);
