@@ -1,8 +1,19 @@
+/**
+ * M25 Monitor - PILOT Extension
+ * Точка входа. Создаёт главную панель, передавая ей заголовок.
+ */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
+    // Технический идентификатор расширения (для прокси /store/m25_monitor/...)
     extensionName: 'm25_monitor',
 
+    // Отображаемое название панели (можно менять здесь)
+    panelTitle: 'M25 Monitor — все объекты клиента',
+
+    /**
+     * Возвращает базовый URL для загрузки ресурсов (CSS и т.д.)
+     */
     getModuleBaseUrl: function() {
         var scripts = document.getElementsByTagName('script');
         for (var i = 0; i < scripts.length; i++) {
@@ -14,6 +25,9 @@ Ext.define('Store.m25_monitor.Module', {
         return './';
     },
 
+    /**
+     * Инициализация расширения
+     */
     initModule: function() {
         console.log('[M25] Инициализация расширения (все объекты клиента)...');
 
@@ -32,12 +46,13 @@ Ext.define('Store.m25_monitor.Module', {
             document.head.appendChild(link);
         }
 
-        // Создаём главную панель (с гридом всех ТС и iframe)
+        // Создаём главную панель, передавая заголовок
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
-            id: 'm25monitor-mainpanel-' + Ext.id()
+            id: 'm25monitor-mainpanel-' + Ext.id(),
+            panelTitle: this.panelTitle   // ← передаём название
         });
 
         skeleton.mapframe.add(mainPanel);
-        console.log('[M25] Расширение загружено, отображаются все объекты клиента');
+        console.log('[M25] Расширение загружено, заголовок панели: ' + this.panelTitle);
     }
 });
