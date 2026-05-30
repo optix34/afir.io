@@ -12,20 +12,6 @@ Ext.define('Store.m25_monitor.Module', {
     panelTitle: 'M25 Monitor — все объекты клиента',
 
     /**
-     * Возвращает базовый URL для загрузки ресурсов (CSS и т.д.)
-     */
-    getModuleBaseUrl: function() {
-        var scripts = document.getElementsByTagName('script');
-        for (var i = 0; i < scripts.length; i++) {
-            var src = scripts[i].src || '';
-            if (src.indexOf('/Module.js') !== -1) {
-                return src.substring(0, src.lastIndexOf('/') + 1);
-            }
-        }
-        return './';
-    },
-
-    /**
      * Инициализация расширения
      */
     initModule: function() {
@@ -37,19 +23,22 @@ Ext.define('Store.m25_monitor.Module', {
             return;
         }
 
-        // Подключаем CSS
-        var cssUrl = this.getModuleBaseUrl() + 'view/style.css';
+        // Подключаем CSS – используем абсолютный путь через прокси PILOT
+        var cssUrl = '/store/m25_monitor/view/style.css';
         if (!document.querySelector('link[href="' + cssUrl + '"]')) {
             var link = document.createElement('link');
             link.rel = 'stylesheet';
             link.href = cssUrl;
+            link.onerror = function() {
+                console.warn('[M25] Не удалось загрузить CSS по пути: ' + cssUrl);
+            };
             document.head.appendChild(link);
         }
 
         // Создаём главную панель, передавая заголовок
         var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
             id: 'm25monitor-mainpanel-' + Ext.id(),
-            panelTitle: this.panelTitle   // ← передаём название
+            panelTitle: this.panelTitle
         });
 
         skeleton.mapframe.add(mainPanel);
