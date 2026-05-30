@@ -1,9 +1,7 @@
 /**
  * M25 Monitor - PILOT Extension
- * Отображает все устройства клиента.
- * ID устройства = vehid (Agent ID) – только для чтения.
- * Тип устройства автоматически определяется из полей model/equipment API,
- * но может быть изменён пользователем (сохраняется в localStorage).
+ * Отображает все ТС плоским списком (без папок и корня).
+ * Колонки: Объект, ID устройства (vehid), Тип устройства (редактируемый, выбор из списка).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
@@ -49,7 +47,7 @@ Ext.define('Store.m25_monitor.Module', {
                         {
                             text: 'Обновить список',
                             iconCls: 'fa fa-refresh',
-                            handler: me.refreshTree,
+                            handler: me.refreshGrid,
                             scope: me
                         }
                     ]
@@ -58,7 +56,7 @@ Ext.define('Store.m25_monitor.Module', {
                     region: 'center',
                     xtype: 'panel',
                     layout: 'fit',
-                    items: me.createTreePanel()
+                    items: me.createGridPanel()
                 }
             ]
         });
@@ -101,27 +99,24 @@ Ext.define('Store.m25_monitor.Module', {
             if (btn === 'yes') {
                 me.deviceTypes = {};
                 me.saveTypesToLocal();
-                me.refreshTree();
+                me.refreshGrid();
             }
         });
     },
 
-    refreshTree: function() {
+    refreshGrid: function() {
         var me = this;
-        if (me.treePanel && me.treePanel.getStore()) {
-            me.loadAllVehicles(me.treePanel.getStore(), me.treePanel);
+        if (me.gridPanel && me.gridPanel.getStore()) {
+            me.loadAllVehicles(me.gridPanel.getStore());
         }
     },
 
-    createTreePanel: function() {
+    createGridPanel: function() {
         var me = this;
 
-        var store = Ext.create('Ext.data.TreeStore', {
-            root: {
-                text: 'Все транспортные средства',
-                expanded: true,
-                children: []
-            },
+        var store = Ext.create('Ext.data.Store', {
+            fields: ['id', 'text', 'vehid', 'deviceType'],
+            data: [],
             sorters: [{ property: 'text', direction: 'ASC' }]
         });
 
@@ -130,7 +125,6 @@ Ext.define('Store.m25_monitor.Module', {
             clicksToEdit: 2,
             listeners: {
                 beforeedit: function(editor, context) {
-                    // Разрешаем редактировать только колонку deviceType
                     return context.column.dataIndex === 'deviceType';
                 },
                 edit: function(editor, context) {
@@ -144,46 +138,39 @@ Ext.define('Store.m25_monitor.Module', {
                     } else {
                         delete me.deviceTypes[vehid];
                     }
-                    // Обновляем запись, чтобы отобразить новое значение
                     record.set('deviceType', newValue);
                     me.saveTypesToLocal();
                 }
             }
         });
 
-        // Колонка "Тип устройства" – выпадающий список
-        var typeColumn = {
-            text: 'Тип устройства',
-            dataIndex: 'deviceType',
-            flex: 1.5,
-            sortable: true,
-            editor: {
-                xtype: 'combobox',
-                store: me.deviceTypeOptions,
-                queryMode: 'local',
-                editable: true,
-                forceSelection: false,
-                triggerAction: 'all'
-            },
-            renderer: function(value) {
-                return value ? Ext.String.htmlEncode(value) : '—';
-            }
-        };
-
-        var treePanel = Ext.create('Ext.tree.Panel', {
+        var grid = Ext.create('Ext.grid.Panel', {
             store: store,
-            rootVisible: true,
-            useArrows: true,
-            selType: 'cellmodel',
-            plugins: [cellEditing],
             columns: [
-                { xtype: 'treecolumn', text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
+                { text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
                 { text: 'ID устройства (Agent ID)', dataIndex: 'vehid', flex: 1, sortable: true },
-                typeColumn
+                {
+                    text: 'Тип устройства',
+                    dataIndex: 'deviceType',
+                    flex: 1.5,
+                    sortable: true,
+                    editor: {
+                        xtype: 'combobox',
+                        store: me.deviceTypeOptions,
+                        queryMode: 'local',
+                        editable: true,
+                        forceSelection: false,
+                        triggerAction: 'all'
+                    },
+                    renderer: function(value) {
+                        return value ? Ext.String.htmlEncode(value) : '—';
+                    }
+                }
             ],
+            plugins: [cellEditing],
             listeners: {
                 selectionchange: function(sm, selected) {
-                    if (selected && selected.length && selected[0].get('type') === 'veh') {
+                    if (selected && selected.length) {
                         me.onVehicleSelected(selected[0]);
                     }
                 },
@@ -191,12 +178,12 @@ Ext.define('Store.m25_monitor.Module', {
             }
         });
 
-        me.loadAllVehicles(store, treePanel);
-        me.treePanel = treePanel;
-        return treePanel;
+        me.gridPanel = grid;
+        me.loadAllVehicles(store);
+        return grid;
     },
 
-    loadAllVehicles: function(store, treePanel) {
+    loadAllVehicles: function(store) {
         var me = this;
         console.log('M25 Monitor: загрузка устройств из PILOT');
 
@@ -209,22 +196,16 @@ Ext.define('Store.m25_monitor.Module', {
                     var vehicles = resp.objects || resp.data || resp;
                     if (!Ext.isArray(vehicles)) vehicles = [];
 
-                    var nodes = [];
+                    var data = [];
                     Ext.Array.each(vehicles, function(veh) {
                         var vehid = veh.vehid || veh.id;
                         if (vehid) {
-                            nodes.push(me.normalizeVehicleNode(veh));
+                            data.push(me.normalizeVehicleRecord(veh));
                         }
                     });
 
-                    console.log('M25 Monitor: загружено устройств:', nodes.length);
-                    var treeData = [{
-                        text: 'Все транспортные средства',
-                        expanded: true,
-                        children: nodes
-                    }];
-                    store.setRoot({ children: treeData });
-                    if (treePanel && treePanel.getView) treePanel.getView().refresh();
+                    console.log('M25 Monitor: загружено устройств:', data.length);
+                    store.loadData(data);
                 } catch (e) {
                     console.error('M25 Monitor: ошибка', e);
                     Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
@@ -236,34 +217,24 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    // Нормализация узла: ID устройства = vehid, тип – из сохранённого или из API
-    normalizeVehicleNode: function(vehicle) {
+    normalizeVehicleRecord: function(vehicle) {
         var vehid = vehicle.vehid || vehicle.id;
         var savedType = this.deviceTypes[vehid];
         if (savedType !== undefined) {
-            // Используем сохранённый тип
             return {
-                id: 'veh_' + vehid,
+                id: vehid,
                 text: vehicle.text || vehicle.name || 'Без имени',
                 vehid: vehid,
-                deviceType: savedType,
-                type: 'veh',
-                leaf: true,
-                iconCls: 'fa fa-car'
+                deviceType: savedType
             };
         } else {
-            // Автоматическое определение типа из полей API
             var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
-            // Если API тип входит в список опций, используем его, иначе пусто
             var displayType = (this.deviceTypeOptions.indexOf(apiType) !== -1) ? apiType : '';
             return {
-                id: 'veh_' + vehid,
+                id: vehid,
                 text: vehicle.text || vehicle.name || 'Без имени',
                 vehid: vehid,
-                deviceType: displayType,
-                type: 'veh',
-                leaf: true,
-                iconCls: 'fa fa-car'
+                deviceType: displayType
             };
         }
     },
