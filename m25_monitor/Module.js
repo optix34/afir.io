@@ -1,233 +1,161 @@
 /**
- * M25 Monitor - PILOT Extension
- * Отображает все устройства клиента.
- * ID устройства = vehid (Agent ID) – только для чтения.
- * Тип устройства автоматически определяется из полей model/equipment API,
- * но может быть изменён пользователем (сохраняется в localStorage).
+ * Устройства клиента — расширение PILOT в стиле вкладки Online.
+ * Показывает иерархическое дерево объектов (группы + ТС).
+ * Для каждого ТС можно задать/изменить тип устройства через контекстное меню.
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    // Предопределённые типы устройств
+    // Предопределённые типы
     deviceTypeOptions: ['M25', 'M30', 'M40', 'Другое'],
 
     initModule: function() {
         var me = this;
-        console.log('M25 Monitor: initModule');
+        console.log('DeviceMonitor: initModule');
 
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
-            console.error('M25 Monitor: skeleton not ready');
+            console.error('DeviceMonitor: skeleton not ready');
             return;
         }
 
-        // Загружаем сохранённые типы (по vehid)
+        // Загружаем сохранённые типы
         me.loadSavedTypes();
 
-        var navPanel = Ext.create('Ext.panel.Panel', {
-            layout: 'border',
-            border: false,
-            items: [
-                {
-                    region: 'north',
-                    xtype: 'toolbar',
-                    items: [
-                        {
-                            text: 'Сохранить типы',
-                            iconCls: 'fa fa-save',
-                            handler: me.saveTypesToLocal,
-                            scope: me
-                        },
-                        {
-                            text: 'Сбросить все типы',
-                            iconCls: 'fa fa-undo',
-                            handler: me.resetAllTypes,
-                            scope: me
-                        },
-                        '->',
-                        {
-                            text: 'Обновить список',
-                            iconCls: 'fa fa-refresh',
-                            handler: me.refreshTree,
-                            scope: me
-                        }
-                    ]
-                },
-                {
-                    region: 'center',
-                    xtype: 'panel',
-                    layout: 'fit',
-                    items: me.createTreePanel()
-                }
-            ]
-        });
+        // Создаём дерево
+        var treePanel = me.createTreePanel();
 
+        // Вкладка в левой навигации — только дерево, без дополнительных панелей
         var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
             title: 'Устройства клиента',
             iconCls: 'fa fa-microchip',
             iconAlign: 'top',
             minimized: true,
             layout: 'fit',
-            items: [navPanel]
+            items: [treePanel]
         });
 
+        // Основная панель (iframe)
         var mainPanel = me.createMainPanel();
         navTab.map_frame = mainPanel;
 
         skeleton.navigation.add(navTab);
         skeleton.mapframe.add(mainPanel);
 
+        me.treePanel = treePanel;
         me.mainPanel = mainPanel;
     },
 
+    // Загрузка сохранённых типов из localStorage
     loadSavedTypes: function() {
-        var stored = localStorage.getItem('m25_monitor_device_types');
+        var stored = localStorage.getItem('device_custom_types');
         if (stored) {
-            this.deviceTypes = Ext.decode(stored);
+            this.customTypes = Ext.decode(stored);
         } else {
-            this.deviceTypes = {};
+            this.customTypes = {};
         }
     },
 
-    saveTypesToLocal: function() {
-        localStorage.setItem('m25_monitor_device_types', Ext.encode(this.deviceTypes));
+    // Сохранение всех типов в localStorage
+    saveAllTypes: function() {
+        localStorage.setItem('device_custom_types', Ext.encode(this.customTypes));
         Ext.Msg.alert('Сохранено', 'Типы устройств сохранены');
     },
 
+    // Сброс всех пользовательских типов
     resetAllTypes: function() {
         var me = this;
-        Ext.Msg.confirm('Сброс', 'Сбросить все типы устройств к значениям из API?', function(btn) {
+        Ext.Msg.confirm('Сброс', 'Сбросить все типы к значениям из системы?', function(btn) {
             if (btn === 'yes') {
-                me.deviceTypes = {};
-                me.saveTypesToLocal();
+                me.customTypes = {};
+                me.saveAllTypes();
                 me.refreshTree();
             }
         });
     },
 
+    // Обновить дерево из API
     refreshTree: function() {
         var me = this;
         if (me.treePanel && me.treePanel.getStore()) {
-            me.loadAllVehicles(me.treePanel.getStore(), me.treePanel);
+            me.loadTreeData(me.treePanel.getStore(), me.treePanel);
         }
     },
 
+    // Создание дерева с колонками
     createTreePanel: function() {
         var me = this;
 
         var store = Ext.create('Ext.data.TreeStore', {
             root: {
-                text: 'Все транспортные средства',
+                text: 'Все объекты',
                 expanded: true,
                 children: []
             },
             sorters: [{ property: 'text', direction: 'ASC' }]
         });
 
-        // Редактирование ячеек только для колонки "Тип устройства"
-        var cellEditing = Ext.create('Ext.grid.plugin.CellEditing', {
-            clicksToEdit: 2,
-            listeners: {
-                beforeedit: function(editor, context) {
-                    // Разрешаем редактировать только колонку deviceType
-                    return context.column.dataIndex === 'deviceType';
-                },
-                edit: function(editor, context) {
-                    var record = context.record;
-                    var newValue = context.value;
-                    var vehid = record.get('vehid');
-                    if (!vehid) return;
-
-                    if (newValue) {
-                        me.deviceTypes[vehid] = newValue;
-                    } else {
-                        delete me.deviceTypes[vehid];
-                    }
-                    // Обновляем запись, чтобы отобразить новое значение
-                    record.set('deviceType', newValue);
-                    me.saveTypesToLocal();
-                }
-            }
-        });
-
-        // Колонка "Тип устройства" – выпадающий список
-        var typeColumn = {
-            text: 'Тип устройства',
-            dataIndex: 'deviceType',
-            flex: 1.5,
-            sortable: true,
-            editor: {
-                xtype: 'combobox',
-                store: me.deviceTypeOptions,
-                queryMode: 'local',
-                editable: true,
-                forceSelection: false,
-                triggerAction: 'all'
-            },
-            renderer: function(value) {
-                return value ? Ext.String.htmlEncode(value) : '—';
-            }
-        };
-
         var treePanel = Ext.create('Ext.tree.Panel', {
             store: store,
             rootVisible: true,
             useArrows: true,
-            selType: 'cellmodel',
-            plugins: [cellEditing],
             columns: [
                 { xtype: 'treecolumn', text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
-                { text: 'ID устройства (Agent ID)', dataIndex: 'vehid', flex: 1, sortable: true },
-                typeColumn
+                { text: 'ID устройства (vehid)', dataIndex: 'vehid', flex: 1, sortable: true },
+                { text: 'Тип устройства', dataIndex: 'deviceType', flex: 1.5, sortable: true }
             ],
             listeners: {
+                // Левый клик — выбор объекта
                 selectionchange: function(sm, selected) {
                     if (selected && selected.length && selected[0].get('type') === 'veh') {
                         me.onVehicleSelected(selected[0]);
+                    }
+                },
+                // Контекстное меню для ТС
+                itemcontextmenu: function(view, record, item, index, event) {
+                    event.stopEvent();
+                    if (record.get('type') === 'veh') {
+                        me.showContextMenu(record, event);
                     }
                 },
                 scope: me
             }
         });
 
-        me.loadAllVehicles(store, treePanel);
-        me.treePanel = treePanel;
+        me.loadTreeData(store, treePanel);
         return treePanel;
     },
 
-    loadAllVehicles: function(store, treePanel) {
+    // Загрузка иерархических данных из tags.php
+    loadTreeData: function(store, treePanel) {
         var me = this;
-        console.log('M25 Monitor: загрузка устройств из PILOT');
+        console.log('DeviceMonitor: загрузка дерева из /ax/mod/tags.php?cmd=groups');
 
         Ext.Ajax.request({
-            url: '/ax/current_data.php',
+            url: '/ax/mod/tags.php',
+            params: {
+                cmd: 'groups',
+                _dc: new Date().getTime(),
+                page: 1,
+                start: 0,
+                limit: 1000
+            },
             method: 'GET',
             success: function(response) {
                 try {
                     var resp = Ext.decode(response.responseText);
-                    var vehicles = resp.objects || resp.data || resp;
-                    if (!Ext.isArray(vehicles)) vehicles = [];
+                    var groups = resp.data || resp;
+                    if (!Ext.isArray(groups)) groups = [groups];
 
-                    var nodes = [];
-                    Ext.Array.each(vehicles, function(veh) {
-                        var vehid = veh.vehid || veh.id;
-                        if (vehid) {
-                            nodes.push(me.normalizeVehicleNode(veh));
-                        }
-                    });
+                    // Рекурсивно обрабатываем дерево
+                    var processed = me.processTreeNodes(groups);
+                    store.setRoot({ children: processed });
+                    if (treePanel.getView()) treePanel.getView().refresh();
 
-                    console.log('M25 Monitor: загружено устройств:', nodes.length);
-                    var treeData = [{
-                        text: 'Все транспортные средства',
-                        expanded: true,
-                        children: nodes
-                    }];
-                    store.setRoot({ children: treeData });
-                    if (treePanel && treePanel.getView) treePanel.getView().refresh();
                 } catch (e) {
-                    console.error('M25 Monitor: ошибка', e);
-                    Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
+                    console.error('DeviceMonitor: ошибка', e);
+                    Ext.Msg.alert('Ошибка', 'Не удалось загрузить дерево объектов');
                 }
             },
             failure: function() {
@@ -236,38 +164,152 @@ Ext.define('Store.m25_monitor.Module', {
         });
     },
 
-    // Нормализация узла: ID устройства = vehid, тип – из сохранённого или из API
-    normalizeVehicleNode: function(vehicle) {
-        var vehid = vehicle.vehid || vehicle.id;
-        var savedType = this.deviceTypes[vehid];
-        if (savedType !== undefined) {
-            // Используем сохранённый тип
-            return {
-                id: 'veh_' + vehid,
-                text: vehicle.text || vehicle.name || 'Без имени',
-                vehid: vehid,
-                deviceType: savedType,
-                type: 'veh',
-                leaf: true,
-                iconCls: 'fa fa-car'
-            };
-        } else {
-            // Автоматическое определение типа из полей API
-            var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
-            // Если API тип входит в список опций, используем его, иначе пусто
-            var displayType = (this.deviceTypeOptions.indexOf(apiType) !== -1) ? apiType : '';
-            return {
-                id: 'veh_' + vehid,
-                text: vehicle.text || vehicle.name || 'Без имени',
-                vehid: vehid,
-                deviceType: displayType,
-                type: 'veh',
-                leaf: true,
-                iconCls: 'fa fa-car'
-            };
-        }
+    // Рекурсивная обработка узлов дерева (группы и ТС)
+    processTreeNodes: function(nodes) {
+        var me = this;
+        var result = [];
+        Ext.Array.each(nodes, function(node) {
+            var isVehicle = (node.type === 'veh' || node.vehid);
+            if (isVehicle) {
+                var vehid = node.vehid || node.id;
+                if (vehid) {
+                    result.push(me.normalizeVehicleNode(node, vehid));
+                }
+            } else {
+                // Группа/папка
+                var children = node.children || [];
+                var processedChildren = me.processTreeNodes(children);
+                result.push({
+                    id: node.id || Ext.id(),
+                    text: node.text || node.name || 'Папка',
+                    type: 'group',
+                    leaf: false,
+                    expanded: false,
+                    children: processedChildren
+                });
+            }
+        });
+        return result;
     },
 
+    // Нормализация узла ТС с учётом сохранённого типа
+    normalizeVehicleNode: function(vehicle, vehid) {
+        var savedType = this.customTypes[vehid];
+        var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
+        var displayType = savedType;
+        if (!displayType && apiType && this.deviceTypeOptions.indexOf(apiType) !== -1) {
+            displayType = apiType;
+        }
+        return {
+            id: 'veh_' + vehid,
+            text: vehicle.text || vehicle.name || 'Без имени',
+            vehid: vehid,
+            deviceType: displayType || '',
+            type: 'veh',
+            leaf: true,
+            iconCls: 'fa fa-car',
+            rawApiType: apiType   // для сброса
+        };
+    },
+
+    // Контекстное меню для ТС
+    showContextMenu: function(record, event) {
+        var me = this;
+        var vehid = record.get('vehid');
+        var currentType = record.get('deviceType');
+
+        var menu = Ext.create('Ext.menu.Menu', {
+            items: [
+                {
+                    text: 'Изменить тип устройства...',
+                    iconCls: 'fa fa-pencil',
+                    handler: function() {
+                        me.promptChangeType(record, vehid, currentType);
+                    }
+                },
+                {
+                    text: 'Сбросить тип (к системному)',
+                    iconCls: 'fa fa-undo',
+                    handler: function() {
+                        delete me.customTypes[vehid];
+                        record.set('deviceType', record.get('rawApiType') || '');
+                        me.saveAllTypes();
+                    }
+                },
+                '-',
+                {
+                    text: 'Сохранить все типы',
+                    iconCls: 'fa fa-save',
+                    handler: function() {
+                        me.saveAllTypes();
+                    }
+                },
+                {
+                    text: 'Сбросить все типы',
+                    iconCls: 'fa fa-trash',
+                    handler: function() {
+                        me.resetAllTypes();
+                    }
+                },
+                '-',
+                {
+                    text: 'Обновить список',
+                    iconCls: 'fa fa-refresh',
+                    handler: function() {
+                        me.refreshTree();
+                    }
+                }
+            ]
+        });
+        menu.showAt(event.getXY());
+    },
+
+    // Диалог изменения типа
+    promptChangeType: function(record, vehid, currentType) {
+        var me = this;
+        var comboBox = Ext.create('Ext.form.field.ComboBox', {
+            store: this.deviceTypeOptions,
+            queryMode: 'local',
+            editable: true,
+            forceSelection: false,
+            triggerAction: 'all',
+            value: currentType || '',
+            fieldLabel: 'Тип устройства',
+            width: 300
+        });
+
+        var win = Ext.create('Ext.window.Window', {
+            title: 'Изменить тип',
+            modal: true,
+            items: [comboBox],
+            buttons: [
+                {
+                    text: 'OK',
+                    handler: function() {
+                        var newType = comboBox.getValue();
+                        if (newType) {
+                            me.customTypes[vehid] = newType;
+                            record.set('deviceType', newType);
+                            me.saveAllTypes(); // автосохранение
+                        } else {
+                            // пустое значение — удаляем пользовательский тип
+                            delete me.customTypes[vehid];
+                            record.set('deviceType', record.get('rawApiType') || '');
+                            me.saveAllTypes();
+                        }
+                        win.close();
+                    }
+                },
+                {
+                    text: 'Отмена',
+                    handler: function() { win.close(); }
+                }
+            ]
+        });
+        win.show();
+    },
+
+    // Создание правой панели с iframe
     createMainPanel: function() {
         var me = this;
 
@@ -315,7 +357,7 @@ Ext.define('Store.m25_monitor.Module', {
 
         var mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            title: 'Информация об устройстве (внешняя страница)',
+            title: 'Информация об устройстве',
             tbar: toolbar,
             items: [iframe]
         });
@@ -325,6 +367,7 @@ Ext.define('Store.m25_monitor.Module', {
         return mainPanel;
     },
 
+    // Обработчик выбора устройства
     onVehicleSelected: function(record) {
         var me = this;
         var mainPanel = me.mainPanel;
@@ -349,6 +392,6 @@ Ext.define('Store.m25_monitor.Module', {
             infoText.update('<span style="color:#2563eb;">Текущее устройство: ' + Ext.String.htmlEncode(vehicleName) + '</span>');
         }
 
-        console.log('M25 Monitor: выбрано', vehicleName, vehid);
+        console.log('DeviceMonitor: выбрано', vehicleName, vehid);
     }
 });
