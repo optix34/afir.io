@@ -1,282 +1,72 @@
 /**
  * M25 Monitor - PILOT Extension
- * Отображает все ТС плоским списком.
- * Колонки: Объект, ID устройства (IMEI), Тип устройства (редактируемый).
+ * Точка входа. Создаёт левую панель (дерево M25) и правую панель (iframe).
  */
 Ext.define('Store.m25_monitor.Module', {
     extend: 'Ext.Component',
 
     extensionName: 'm25_monitor',
 
-    deviceTypeOptions: ['M25', 'M30', 'M40', 'Другое'],
+    // Подключаем CSS
+    cssUrl: Ext.util.Format.format('{0}view/style.css', window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/')),
 
     initModule: function() {
         var me = this;
-        console.log('M25 Monitor: initModule');
+        console.log('[M25] Extension initializing...');
 
+        // Защита от отсутствия skeleton
         if (!window.skeleton || !skeleton.navigation || !skeleton.mapframe) {
-            console.error('M25 Monitor: skeleton not ready');
+            console.error('[M25] Skeleton not ready, retry in 500ms');
+            Ext.defer(me.initModule, 500, me);
             return;
         }
 
-        me.loadSavedTypes();
+        // Подключаем CSS, если ещё не подключён
+        if (!document.querySelector('link[href="' + me.cssUrl + '"]')) {
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = me.cssUrl;
+            document.head.appendChild(link);
+        }
 
-        var navPanel = Ext.create('Ext.panel.Panel', {
-            layout: 'border',
-            border: false,
-            items: [
-                {
-                    region: 'north',
-                    xtype: 'toolbar',
-                    items: [
-                        { text: 'Сохранить типы', iconCls: 'fa fa-save', handler: me.saveTypesToLocal, scope: me },
-                        { text: 'Сбросить все типы', iconCls: 'fa fa-undo', handler: me.resetAllTypes, scope: me },
-                        '->',
-                        { text: 'Обновить список', iconCls: 'fa fa-refresh', handler: me.refreshGrid, scope: me }
-                    ]
-                },
-                {
-                    region: 'center',
-                    xtype: 'panel',
-                    layout: 'fit',
-                    items: me.createGridPanel()
-                }
-            ]
+        // Создаём правую панель (MainPanel)
+        var mainPanel = Ext.create('Store.m25_monitor.view.MainPanel', {
+            id: 'm25monitor-mainpanel-' + Ext.id()
         });
 
+        // Создаём левую навигацию (Navigation)
+        var navPanel = Ext.create('Store.m25_monitor.view.Navigation', {
+            title: me.getTitle(),
+            iconCls: 'fa fa-microchip',
+            iconAlign: 'top',
+            minimized: true,
+            layout: 'fit'
+        });
+
+        // Связываем панели
+        navPanel.setMainPanel(mainPanel);
+        // Сохраняем ссылку для доступа из MainPanel (если потребуется)
+        navPanel.mainPanelRef = mainPanel;
+
+        // Добавляем вкладку в левую панель навигации skeleton
         var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
-            title: 'Устройства клиента',
+            title: me.getTitle(),
             iconCls: 'fa fa-microchip',
             iconAlign: 'top',
             minimized: true,
             layout: 'fit',
             items: [navPanel]
         });
-
-        var mainPanel = me.createMainPanel();
+        // По соглашению PILOT: map_frame указывает на правую панель
         navTab.map_frame = mainPanel;
 
         skeleton.navigation.add(navTab);
         skeleton.mapframe.add(mainPanel);
 
-        me.mainPanel = mainPanel;
+        console.log('[M25] Extension initialized successfully');
     },
 
-    loadSavedTypes: function() {
-        var stored = localStorage.getItem('m25_monitor_device_types');
-        this.deviceTypes = stored ? Ext.decode(stored) : {};
-    },
-
-    saveTypesToLocal: function() {
-        localStorage.setItem('m25_monitor_device_types', Ext.encode(this.deviceTypes));
-        Ext.Msg.alert('Сохранено', 'Типы устройств сохранены');
-    },
-
-    resetAllTypes: function() {
-        var me = this;
-        Ext.Msg.confirm('Сброс', 'Сбросить все типы устройств к значениям из API?', function(btn) {
-            if (btn === 'yes') {
-                me.deviceTypes = {};
-                me.saveTypesToLocal();
-                me.refreshGrid();
-            }
-        });
-    },
-
-    refreshGrid: function() {
-        if (this.gridPanel && this.gridPanel.getStore()) {
-            this.loadAllVehicles(this.gridPanel.getStore());
-        }
-    },
-
-    createGridPanel: function() {
-        var me = this;
-
-        var store = Ext.create('Ext.data.Store', {
-            fields: ['id', 'text', 'vehid', 'imei', 'deviceType'],
-            data: [],
-            sorters: [{ property: 'text', direction: 'ASC' }]
-        });
-
-        var cellEditing = Ext.create('Ext.grid.plugin.CellEditing', {
-            clicksToEdit: 2,
-            listeners: {
-                beforeedit: function(editor, context) {
-                    return context.column.dataIndex === 'deviceType';
-                },
-                edit: function(editor, context) {
-                    var record = context.record;
-                    var newValue = context.value;
-                    var vehid = record.get('vehid');
-                    if (!vehid) return;
-
-                    if (newValue) {
-                        me.deviceTypes[vehid] = newValue;
-                    } else {
-                        delete me.deviceTypes[vehid];
-                    }
-                    record.set('deviceType', newValue);
-                    me.saveTypesToLocal();
-                }
-            }
-        });
-
-        var grid = Ext.create('Ext.grid.Panel', {
-            store: store,
-            columns: [
-                { text: 'Объект', dataIndex: 'text', flex: 2, sortable: true },
-                { text: 'ID устройства', dataIndex: 'imei', flex: 1.5, sortable: true, renderer: function(v) { return v || '—'; } },
-                {
-                    text: 'Тип устройства',
-                    dataIndex: 'deviceType',
-                    flex: 1.5,
-                    sortable: true,
-                    editor: {
-                        xtype: 'combobox',
-                        store: me.deviceTypeOptions,
-                        queryMode: 'local',
-                        editable: true,
-                        forceSelection: false,
-                        triggerAction: 'all'
-                    },
-                    renderer: function(value) { return value ? Ext.String.htmlEncode(value) : '—'; }
-                }
-            ],
-            plugins: [cellEditing],
-            listeners: {
-                selectionchange: function(sm, selected) {
-                    if (selected && selected.length) me.onVehicleSelected(selected[0]);
-                },
-                scope: me
-            }
-        });
-
-        me.gridPanel = grid;
-        me.loadAllVehicles(store);
-        return grid;
-    },
-
-    loadAllVehicles: function(store) {
-        var me = this;
-        console.log('M25 Monitor: загрузка устройств из PILOT');
-
-        Ext.Ajax.request({
-            url: '/ax/current_data.php',
-            method: 'GET',
-            success: function(response) {
-                try {
-                    var resp = Ext.decode(response.responseText);
-                    var vehicles = resp.objects || resp.data || resp;
-                    if (!Ext.isArray(vehicles)) vehicles = [];
-
-                    var data = [];
-                    Ext.Array.each(vehicles, function(veh) {
-                        var vehid = veh.vehid || veh.id;
-                        if (vehid) {
-                            data.push(me.normalizeVehicleRecord(veh));
-                        }
-                    });
-
-                    console.log('M25 Monitor: загружено устройств:', data.length);
-                    store.loadData(data);
-                } catch (e) {
-                    console.error('M25 Monitor: ошибка', e);
-                    Ext.Msg.alert('Ошибка', 'Не удалось загрузить список устройств');
-                }
-            },
-            failure: function() {
-                Ext.Msg.alert('Ошибка', 'Ошибка соединения с PILOT API');
-            }
-        });
-    },
-
-    normalizeVehicleRecord: function(vehicle) {
-        var vehid = vehicle.vehid || vehicle.id;
-        var savedType = this.deviceTypes[vehid];
-        var apiType = vehicle.model || vehicle.equipment || vehicle.hardware || vehicle.device_type || '';
-        var displayType = savedType !== undefined ? savedType : (this.deviceTypeOptions.indexOf(apiType) !== -1 ? apiType : '');
-        return {
-            id: vehid,
-            text: vehicle.text || vehicle.name || 'Без имени',
-            vehid: vehid,
-            imei: vehicle.imei || '',
-            deviceType: displayType
-        };
-    },
-
-    createMainPanel: function() {
-        var me = this;
-
-        var iframe = Ext.create('Ext.Component', {
-            autoEl: { tag: 'iframe', src: 'about:blank', style: 'width:100%;height:100%;border:none;' },
-            getIframeDom: function() { return this.getEl().dom; }
-        });
-
-        var toolbar = Ext.create('Ext.toolbar.Toolbar', {
-            dock: 'top',
-            items: [
-                {
-                    text: 'Обновить iframe',
-                    iconCls: 'fa fa-refresh',
-                    handler: function() {
-                        if (me.currentIframeSrc && me.currentIframeSrc !== 'about:blank') {
-                            var iframeEl = iframe.getIframeDom();
-                            if (iframeEl) iframeEl.src = me.currentIframeSrc;
-                        }
-                    }
-                },
-                {
-                    text: 'Открыть в новом окне',
-                    iconCls: 'fa fa-external-link',
-                    handler: function() {
-                        if (me.currentIframeSrc && me.currentIframeSrc !== 'about:blank') {
-                            window.open(me.currentIframeSrc, '_blank');
-                        } else {
-                            Ext.Msg.alert('Информация', 'Сначала выберите объект.');
-                        }
-                    }
-                },
-                '->',
-                { xtype: 'component', html: '<span style="color:#888;">Выберите устройство в левой панели</span>', itemId: 'infoText' }
-            ]
-        });
-
-        var mainPanel = Ext.create('Ext.panel.Panel', {
-            layout: 'fit',
-            title: 'Информация об устройстве (внешняя страница)',
-            tbar: toolbar,
-            items: [iframe]
-        });
-
-        mainPanel.iframe = iframe;
-        me.currentIframeSrc = 'about:blank';
-        return mainPanel;
-    },
-
-    onVehicleSelected: function(record) {
-        var me = this;
-        var mainPanel = me.mainPanel;
-        if (!mainPanel) return;
-
-        var vehid = record.get('vehid');
-        var vehicleName = record.get('text');
-        var baseUrl = 'https://mega-info.su/dealer2/';
-        var url = baseUrl;
-        if (vehid) {
-            url = baseUrl + (baseUrl.indexOf('?') === -1 ? '?' : '&') + 'vehicle_id=' + encodeURIComponent(vehid);
-        }
-
-        var iframeDom = mainPanel.iframe.getIframeDom();
-        if (iframeDom) {
-            iframeDom.src = url;
-            me.currentIframeSrc = url;
-        }
-
-        var infoText = mainPanel.down('#infoText');
-        if (infoText) {
-            infoText.update('<span style="color:#2563eb;">Текущее устройство: ' + Ext.String.htmlEncode(vehicleName) + '</span>');
-        }
-
-        console.log('M25 Monitor: выбрано', vehicleName, vehid);
+    getTitle: function() {
+        return typeof l === 'function' ? l('M25 Monitor') : 'M25 Monitor';
     }
 });
